@@ -1,0 +1,7 @@
+{
+  "name": "TempestWx",
+  "description": "Minimalist MagicMirror² module for Tempest weather stations displaying real-time temperature, humidity, pressure with modern icons and touchscreen forecast modals.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
+

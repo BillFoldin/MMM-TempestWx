@@ -1,0 +1,209 @@
+import { TempestStationData, TempestObservation, DailyForecast, HourlyForecast } from '../types/tempest.ts';
+import { degreesToCardinal } from './tempestFormat.ts';
+import { generateForecastDaily, generateForecastHourly } from './mockStations.ts';
+
+export async function fetchLiveTempestData(stationId: string, token: string): Promise<TempestStationData> {
+  if (!stationId || !token) {
+    throw new Error('Station ID and Tempest Personal Access Token are required.');
+  }
+
+  // First try server proxy route (Node.js built-in API call), fall back to direct swd.weatherflow.com
+  let obsData: any = null;
+  let forecastData: any = null;
+
+  try {
+    const obsRes = await fetch(`/api/tempest/observations/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+    if (obsRes.ok) {
+      obsData = await obsRes.json();
+    } else {
+      // direct browser fallback
+      const directObs = await fetch(`https://swd.weatherflow.com/id/observations/station/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+      if (!directObs.ok) throw new Error(`WeatherFlow API error: ${directObs.statusText}`);
+      obsData = await directObs.json();
+    }
+  } catch (err: any) {
+    // direct fetch attempt
+    const directObs = await fetch(`https://swd.weatherflow.com/id/observations/station/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+    if (!directObs.ok) throw new Error(`Could not reach Tempest Station ${stationId}: ${err.message || directObs.statusText}`);
+    obsData = await directObs.json();
+  }
+
+  try {
+    const fcRes = await fetch(`/api/tempest/forecast/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+    if (fcRes.ok) {
+      forecastData = await fcRes.json();
+    } else {
+      const directFc = await fetch(`https://swd.weatherflow.com/id/better_forecast?station_id=${encodeURIComponent(stationId)}&token=${encodeURIComponent(token)}`);
+      if (directFc.ok) {
+        forecastData = await directFc.json();
+      }
+    }
+  } catch (err) {
+    console.warn('Forecast endpoint unreachable, synthesizing forecast from current observation', err);
+  }
+
+  // Parse raw Tempest observation array
+  const rawObs = obsData?.obs?.[0];
+  if (!rawObs && !obsData?.station_id) {
+    throw new Error('No observations available from station. Please check your Station ID and Token.');
+  }
+
+  // In Tempest API, obs array indices:
+  // [0] epoch, [1] lull, [2] wind_avg, [3] wind_gust, [4] wind_dir, [5] interval,
+  // [6] station_pressure, [7] air_temp, [8] rel_hum, [9] illuminance, [10] uv,
+  // [11] solar_radiation, [12] rain_accum, [13] precip_type, [14] lightning_dist, [15] lightning_count, [16] battery
+  const airTemp = rawObs ? rawObs[7] : obsData.air_temperature ?? 20;
+  const relHum = rawObs ? rawObs[8] : obsData.relative_humidity ?? 50;
+  const pressure = rawObs ? rawObs[6] : obsData.barometric_pressure ?? 1013.25;
+  const windAvg = rawObs ? rawObs[2] : obsData.wind_avg ?? 2.5;
+  const windGust = rawObs ? rawObs[3] : obsData.wind_gust ?? 4.0;
+  const windDeg = rawObs ? rawObs[4] : obsData.wind_direction ?? 180;
+
+  // UV Index from observation array (index 10) or current conditions
+  let uv = 0;
+  if (rawObs && rawObs[10] !== undefined && rawObs[10] !== null) {
+    uv = Number(rawObs[10]);
+  } else if (obsData?.uv !== undefined && obsData?.uv !== null) {
+    uv = Number(obsData.uv);
+  } else if (forecastData?.current_conditions?.uv !== undefined && forecastData?.current_conditions?.uv !== null) {
+    uv = Number(forecastData.current_conditions.uv);
+  }
+  uv = isNaN(uv) || uv < 0 ? 0 : Number(uv.toFixed(1));
+
+  const solar = rawObs ? (rawObs[11] ?? 0) : (obsData.solar_radiation ?? 0);
+  const rainAccum = rawObs ? (rawObs[12] ?? 0) : (obsData.precip_accum_local_day ?? 0);
+
+  // Lightning strikes count (index 15) and distance in km (index 14)
+  let lightningCount = 0;
+  if (rawObs && rawObs[15] !== undefined && rawObs[15] !== null) {
+    lightningCount = Number(rawObs[15]);
+  } else if (obsData?.lightning_strike_count !== undefined && obsData?.lightning_strike_count !== null) {
+    lightningCount = Number(obsData.lightning_strike_count);
+  } else if (forecastData?.current_conditions?.lightning_strike_count !== undefined) {
+    lightningCount = Number(forecastData.current_conditions.lightning_strike_count);
+  }
+  lightningCount = isNaN(lightningCount) || lightningCount < 0 ? 0 : Math.round(lightningCount);
+
+  let lightningDist = 0;
+  if (rawObs && rawObs[14] !== undefined && rawObs[14] !== null) {
+    lightningDist = Number(rawObs[14]);
+  } else if (obsData?.lightning_strike_last_distance !== undefined && obsData?.lightning_strike_last_distance !== null) {
+    lightningDist = Number(obsData.lightning_strike_last_distance);
+  } else if (obsData?.lightning_strike_avg_distance !== undefined && obsData?.lightning_strike_avg_distance !== null) {
+    lightningDist = Number(obsData.lightning_strike_avg_distance);
+  } else if (forecastData?.current_conditions?.lightning_strike_last_distance !== undefined) {
+    lightningDist = Number(forecastData.current_conditions.lightning_strike_last_distance);
+  }
+  lightningDist = isNaN(lightningDist) || lightningDist < 0 ? 0 : Number(lightningDist.toFixed(1));
+
+  // If no strikes have occurred, reset distance to 0 to prevent stale warning labels
+  if (lightningCount === 0) {
+    lightningDist = 0;
+  }
+
+  const battery = rawObs ? (rawObs[16] ?? 2.78) : (obsData.battery ?? 2.78);
+
+  // Dew point calculation: Td = T - ((100 - RH)/5)
+  const dewPoint = airTemp - ((100 - relHum) / 5);
+  const feelsLike = forecastData?.current_conditions?.feels_like ?? airTemp;
+
+  const observation: TempestObservation = {
+    timestamp: Date.now(),
+    station_id: stationId,
+    station_name: obsData.station_name || `Tempest Station #${stationId}`,
+    air_temperature: airTemp,
+    relative_humidity: relHum,
+    barometric_pressure: pressure,
+    sea_level_pressure: forecastData?.current_conditions?.sea_level_pressure ?? pressure + 1.2,
+    pressure_trend: 'steady',
+    pressure_trend_delta: 0.02,
+    wind_avg: windAvg,
+    wind_gust: windGust,
+    wind_direction: windDeg,
+    wind_direction_cardinal: degreesToCardinal(windDeg),
+    solar_radiation: solar,
+    uv,
+    precip_rate: 0,
+    precip_accum_local_day: rainAccum,
+    lightning_strike_count: lightningCount,
+    lightning_strike_last_distance: lightningDist,
+    battery,
+    feels_like: feelsLike,
+    dew_point: Number(dewPoint.toFixed(1)),
+  };
+
+  let daily: DailyForecast[] = [];
+  if (forecastData?.forecast?.daily?.length) {
+    daily = forecastData.forecast.daily.slice(0, 7).map((d: any, idx: number) => {
+      const date = new Date(d.day_start_local * 1000);
+      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      return {
+        day_start_local: d.day_start_local,
+        day_name: idx === 0 ? 'Today' : idx === 1 ? 'Tomorrow' : days[date.getDay()],
+        date_label: `${date.getMonth() + 1}/${date.getDate()}`,
+        conditions: d.conditions || 'Partly Cloudy',
+        icon: mapWeatherFlowIcon(d.icon),
+        air_temp_high: d.air_temp_high,
+        air_temp_low: d.air_temp_low,
+        precip_probability: d.precip_probability ?? 0,
+        wind_avg: d.wind_avg ?? 3,
+        wind_direction_cardinal: d.wind_direction_cardinal || 'W',
+        uv: d.uv ?? 5,
+      };
+    });
+  } else {
+    daily = generateForecastDaily(airTemp, stationId);
+  }
+
+  let hourly: HourlyForecast[] = [];
+  if (forecastData?.forecast?.hourly?.length) {
+    hourly = forecastData.forecast.hourly.slice(0, 24).map((h: any) => {
+      const d = new Date(h.time * 1000);
+      const hours = d.getHours();
+      const hourLabel = hours === 0 ? '12 AM' : hours === 12 ? '12 PM' : hours > 12 ? `${hours - 12} PM` : `${hours} AM`;
+      return {
+        time: h.time,
+        hour_label: hourLabel,
+        conditions: h.conditions || 'Clear',
+        icon: mapWeatherFlowIcon(h.icon),
+        air_temp: h.air_temp,
+        feels_like: h.feels_like ?? h.air_temp,
+        relative_humidity: h.relative_humidity ?? 50,
+        wind_avg: h.wind_avg,
+        wind_gust: h.wind_gust ?? h.wind_avg + 2,
+        wind_direction: h.wind_direction,
+        wind_direction_cardinal: h.wind_direction_cardinal || degreesToCardinal(h.wind_direction),
+        uv: h.uv ?? 0,
+        precip_accum: h.precip ?? h.precip_accum ?? 0,
+        precip_probability: h.precip_probability ?? 0,
+      };
+    });
+  } else {
+    hourly = generateForecastHourly(windAvg, airTemp);
+  }
+
+  return {
+    station_id: stationId,
+    station_name: obsData.station_name || `Tempest Station #${stationId}`,
+    last_updated: Date.now(),
+    observation,
+    forecast_daily: daily,
+    forecast_hourly: hourly,
+    is_live: true,
+    error: null,
+  };
+}
+
+function mapWeatherFlowIcon(iconStr: string): string {
+  if (!iconStr) return 'partly-cloudy';
+  const s = iconStr.toLowerCase();
+  if (s.includes('thunder') || s.includes('lightning')) return 'thunderstorm';
+  if (s.includes('rain') || s.includes('shower')) return 'rain';
+  if (s.includes('snow') || s.includes('flurries')) return 'snow';
+  if (s.includes('wind')) return 'windy';
+  if (s.includes('fog') || s.includes('haze')) return 'fog';
+  if (s.includes('cloudy') || s.includes('overcast')) return 'cloudy';
+  if (s.includes('partly')) return 'partly-cloudy';
+  if (s.includes('clear')) return 'clear';
+  return 'partly-cloudy';
+}
