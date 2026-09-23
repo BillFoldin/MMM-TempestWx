@@ -19,6 +19,7 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
   const [activeTab, setActiveTab] = useState<FileTab>('js');
   const [copied, setCopied] = useState(false);
   const [isZipping, setIsZipping] = useState(false);
+  const [showTroubleshooter, setShowTroubleshooter] = useState(true);
 
   const mmmJs = getMmmTempestWxJs();
   const helperJs = getNodeHelperJs();
@@ -211,6 +212,140 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
           </button>
         </div>
       </div>
+
+      {/* Troubleshooting Alert Box */}
+      {showTroubleshooter && (
+        <div className="bg-amber-950/30 border-b border-amber-900/50 p-4 text-xs">
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex items-start gap-2.5">
+              <span className="p-1 rounded bg-amber-500/20 text-amber-400 mt-0.5 shrink-0">
+                <svg className="w-4 h-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                  <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z" />
+                  <line x1="12" y1="9" x2="12" y2="13" />
+                  <line x1="12" y1="17" x2="12.01" y2="17" />
+                </svg>
+              </span>
+              <div>
+                <h4 className="font-semibold text-amber-200">
+                  Fix for: <span className="font-mono text-[11px] bg-black/40 px-1 py-0.5 rounded text-amber-300">No \MagicMirror\modules\MMM-TempestWx/MMM-TempestWx.js found</span>
+                </h4>
+                <p className="text-neutral-300 mt-1 leading-relaxed">
+                  This error happens when the files are placed in a <strong>nested subfolder</strong> (e.g. <code className="text-amber-200 font-mono">modules/MMM-TempestWx/MMM-TempestWx/</code>) after unzipping, or if the folder name has a typo.
+                </p>
+                <div className="mt-2.5 grid grid-cols-1 md:grid-cols-2 gap-3 font-mono text-[11px]">
+                  <div className="p-2.5 rounded bg-black/60 border border-neutral-800">
+                    <div className="text-neutral-400 mb-1 font-sans font-medium text-xs">Expected Folder Structure:</div>
+                    <div className="text-neutral-300">
+                      MagicMirror/<br />
+                      &nbsp;&nbsp;└── modules/<br />
+                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── <strong className="text-emerald-400">MMM-TempestWx/</strong><br />
+                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <strong className="text-white">MMM-TempestWx.js</strong> <em>(directly here)</em><br />
+                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── node_helper.js<br />
+                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── MMM-TempestWx.css<br />
+                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── package.json
+                    </div>
+                  </div>
+                  <div className="p-2.5 rounded bg-black/60 border border-neutral-800">
+                    <div className="text-neutral-400 mb-1 font-sans font-medium text-xs">Quick Terminal Fix (Raspberry Pi / Linux):</div>
+                    <pre className="text-sky-300 whitespace-pre-wrap">
+                      cd ~/MagicMirror/modules{"\n"}
+                      # If nested inside MMM-TempestWx/MMM-TempestWx:{"\n"}
+                      mv MMM-TempestWx/MMM-TempestWx/* MMM-TempestWx/{"\n"}
+                      rmdir MMM-TempestWx/MMM-TempestWx{"\n"}
+                      # Verify MMM-TempestWx.js is now visible:{"\n"}
+                      ls -la MMM-TempestWx/
+                    </pre>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-amber-900/40">
+                  <div className="font-semibold text-emerald-300 mb-1 flex items-center justify-between">
+                    <span>WeatherFlow API URL Verification</span>
+                    <span className="text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-mono">Official REST endpoints</span>
+                  </div>
+                  <p className="text-neutral-300 text-[11px] leading-relaxed mb-2">
+                    Here are the exact URLs configured for your station and token. You can copy either URL to verify it directly in your browser or with <code className="text-white">curl</code>:
+                  </p>
+                  <div className="space-y-2 font-mono text-[11px]">
+                    <div className="p-2.5 rounded bg-black/70 border border-neutral-800">
+                      <div className="text-neutral-400 text-[10px] font-sans font-medium mb-1 flex items-center justify-between">
+                        <span>1. Live Observation Endpoint (Path has /station/&#123;id&#125;):</span>
+                        <span className="text-neutral-500">HTTP GET</span>
+                      </div>
+                      <div className="text-sky-300 break-all select-all">
+                        {`https://swd.weatherflow.com/swd/rest/observations/station/${config.stationId || 'YOUR_STATION_ID'}?token=${config.token || 'YOUR_TOKEN'}`}
+                      </div>
+                    </div>
+                    <div className="p-2.5 rounded bg-black/70 border border-neutral-800">
+                      <div className="text-neutral-400 text-[10px] font-sans font-medium mb-1 flex items-center justify-between">
+                        <span>2. Better Forecast Endpoint (Query has ?station_id=&#123;id&#125;):</span>
+                        <span className="text-neutral-500">HTTP GET</span>
+                      </div>
+                      <div className="text-amber-300 break-all select-all">
+                        {`https://swd.weatherflow.com/swd/rest/better_forecast?station_id=${config.stationId || 'YOUR_STATION_ID'}&token=${config.token || 'YOUR_TOKEN'}`}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-amber-900/40">
+                  <div className="font-semibold text-rose-300 mb-1">
+                    Fix for: <span className="font-mono text-[11px] bg-black/40 px-1 py-0.5 rounded text-rose-200">HTTP 404 Not Found</span>
+                  </div>
+                  <p className="text-neutral-300 text-[11px] leading-relaxed">
+                    1. <strong>API Endpoint URL:</strong> Ensure your <code className="text-amber-200 font-mono">node_helper.js</code> uses WeatherFlow's official REST endpoint <code className="text-emerald-400 font-mono">swd/rest/observations/station/</code> (updated in the code tabs).<br />
+                    2. <strong>Station ID vs Device ID:</strong> WeatherFlow requires your numerical <strong>Station ID</strong> (e.g. 5 digits like <code className="text-white">12345</code>), NOT your hardware Device ID or Hub Serial number. Find it at <a href="https://tempestwx.com" target="_blank" rel="noreferrer" className="text-sky-300 underline">tempestwx.com</a> &gt; <em>Settings &gt; Stations &gt; [Your Station]</em> (it also appears at the end of your browser URL: <code className="text-neutral-400">tempestwx.com/station/<strong>12345</strong></code>).
+                  </p>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-amber-900/40">
+                  <div className="font-semibold text-rose-300 mb-1">
+                    Fix for: <span className="font-mono text-[11px] bg-black/40 px-1 py-0.5 rounded text-rose-200">"require is not defined in ES module scope" / package.json contains "type": "module"</span>
+                  </div>
+                  <p className="text-neutral-300 text-[11px] leading-relaxed">
+                    MagicMirror uses standard CommonJS (<code className="text-amber-200">require</code>). If your <code className="text-amber-200">MMM-TempestWx/package.json</code> contains <code className="text-rose-300">"type": "module"</code>, Node blocks it.
+                  </p>
+                  <div className="p-2.5 rounded bg-black/60 border border-neutral-800 mt-2 font-mono text-[11px] text-sky-300">
+                    <span className="text-emerald-400 font-sans font-medium block mb-1">Instant 5-Second Fix:</span>
+                    Option A: Edit <code className="text-white">modules/MMM-TempestWx/package.json</code> and change <code className="text-rose-400">"type": "module"</code> to <code className="text-emerald-400">"type": "commonjs"</code>.<br />
+                    Option B (Simplest): Simply <strong>delete <code className="text-white">package.json</code></strong> inside <code className="text-white">modules/MMM-TempestWx/</code>. This module uses Node's built-in APIs with zero npm packages!
+                  </div>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-amber-900/40">
+                  <div className="font-semibold text-amber-200 mb-1">
+                    Stuck on <span className="font-mono text-[11px] bg-black/40 px-1 py-0.5 rounded text-amber-300">"Loading Tempest Station Data..."</span>? Check Logs Here:
+                  </div>
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2 mt-2 font-mono text-[11px]">
+                    <div className="p-2 rounded bg-black/50 border border-neutral-800">
+                      <div className="text-emerald-400 font-sans font-medium mb-0.5">1. PM2 Autostart Logs:</div>
+                      <code className="text-sky-300 block">pm2 logs mm</code>
+                      <span className="text-[10px] text-neutral-400 font-sans block mt-1">Shows backend node_helper requests, errors, & 401 token rejects.</span>
+                    </div>
+                    <div className="p-2 rounded bg-black/50 border border-neutral-800">
+                      <div className="text-emerald-400 font-sans font-medium mb-0.5">2. Manual Run Logs:</div>
+                      <code className="text-sky-300 block">npm start dev</code>
+                      <span className="text-[10px] text-neutral-400 font-sans block mt-1">Direct terminal output + launches with DevTools Console open.</span>
+                    </div>
+                    <div className="p-2 rounded bg-black/50 border border-neutral-800">
+                      <div className="text-emerald-400 font-sans font-medium mb-0.5">3. Electron / Browser:</div>
+                      <code className="text-sky-300 block">Ctrl + Shift + I</code>
+                      <span className="text-[10px] text-neutral-400 font-sans block mt-1">Press on mirror screen or F12 on browser (http://localhost:8080).</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setShowTroubleshooter(false)}
+              className="text-neutral-500 hover:text-neutral-300 p-1"
+              title="Dismiss"
+            >
+              ✕
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Code Display Area */}
       <div className="relative p-4 sm:p-5 bg-black/95 overflow-x-auto max-h-[520px] font-mono text-xs text-neutral-300 leading-relaxed scrollbar-thin scrollbar-thumb-neutral-800">

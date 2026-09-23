@@ -8,32 +8,35 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
   }
 
   // First try server proxy route (Node.js built-in API call), fall back to direct swd.weatherflow.com
+  const cleanStationId = String(stationId || '').trim();
+  const cleanToken = String(token || '').trim();
+
   let obsData: any = null;
   let forecastData: any = null;
 
   try {
-    const obsRes = await fetch(`/api/tempest/observations/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+    const obsRes = await fetch(`/api/tempest/observations/${cleanStationId}?token=${cleanToken}`);
     if (obsRes.ok) {
       obsData = await obsRes.json();
     } else {
       // direct browser fallback
-      const directObs = await fetch(`https://swd.weatherflow.com/id/observations/station/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+      const directObs = await fetch(`https://swd.weatherflow.com/swd/rest/observations/station/${cleanStationId}?token=${cleanToken}`);
       if (!directObs.ok) throw new Error(`WeatherFlow API error: ${directObs.statusText}`);
       obsData = await directObs.json();
     }
   } catch (err: any) {
     // direct fetch attempt
-    const directObs = await fetch(`https://swd.weatherflow.com/id/observations/station/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
-    if (!directObs.ok) throw new Error(`Could not reach Tempest Station ${stationId}: ${err.message || directObs.statusText}`);
+    const directObs = await fetch(`https://swd.weatherflow.com/swd/rest/observations/station/${cleanStationId}?token=${cleanToken}`);
+    if (!directObs.ok) throw new Error(`Could not reach Tempest Station ${cleanStationId}: ${err.message || directObs.statusText}`);
     obsData = await directObs.json();
   }
 
   try {
-    const fcRes = await fetch(`/api/tempest/forecast/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`);
+    const fcRes = await fetch(`/api/tempest/forecast/${cleanStationId}?token=${cleanToken}`);
     if (fcRes.ok) {
       forecastData = await fcRes.json();
     } else {
-      const directFc = await fetch(`https://swd.weatherflow.com/id/better_forecast?station_id=${encodeURIComponent(stationId)}&token=${encodeURIComponent(token)}`);
+      const directFc = await fetch(`https://swd.weatherflow.com/swd/rest/better_forecast?station_id=${cleanStationId}&token=${cleanToken}`);
       if (directFc.ok) {
         forecastData = await directFc.json();
       }
@@ -42,27 +45,38 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
     console.warn('Forecast endpoint unreachable, synthesizing forecast from current observation', err);
   }
 
-  // Parse raw Tempest observation array
-  const rawObs = obsData?.obs?.[0];
+  // Parse raw Tempest observation (array of objects for station, or array of arrays for device)
+  const rawObs = obsData?.obs?.[0] || obsData?.obs || obsData;
   if (!rawObs && !obsData?.station_id) {
     throw new Error('No observations available from station. Please check your Station ID and Token.');
   }
 
-  // In Tempest API, obs array indices:
-  // [0] epoch, [1] lull, [2] wind_avg, [3] wind_gust, [4] wind_dir, [5] interval,
-  // [6] station_pressure, [7] air_temp, [8] rel_hum, [9] illuminance, [10] uv,
-  // [11] solar_radiation, [12] rain_accum, [13] precip_type, [14] lightning_dist, [15] lightning_count, [16] battery
-  const airTemp = rawObs ? rawObs[7] : obsData.air_temperature ?? 20;
-  const relHum = rawObs ? rawObs[8] : obsData.relative_humidity ?? 50;
-  const pressure = rawObs ? rawObs[6] : obsData.barometric_pressure ?? 1013.25;
-  const windAvg = rawObs ? rawObs[2] : obsData.wind_avg ?? 2.5;
-  const windGust = rawObs ? rawObs[3] : obsData.wind_gust ?? 4.0;
-  const windDeg = rawObs ? rawObs[4] : obsData.wind_direction ?? 180;
+  const isArr = Array.isArray(rawObs);
+  const airTemp = isArr
+    ? (rawObs[7] ?? obsData.air_temperature ?? 20)
+    : (rawObs?.air_temperature ?? rawObs?.air_temp ?? forecastData?.current_conditions?.air_temperature ?? obsData.air_temperature ?? 20);
+  const relHum = isArr
+    ? (rawObs[8] ?? obsData.relative_humidity ?? 50)
+    : (rawObs?.relative_humidity ?? rawObs?.rh ?? forecastData?.current_conditions?.relative_humidity ?? obsData.relative_humidity ?? 50);
+  const pressure = isArr
+    ? (rawObs[6] ?? obsData.barometric_pressure ?? 1013.25)
+    : (rawObs?.barometric_pressure ?? rawObs?.station_pressure ?? rawObs?.sea_level_pressure ?? forecastData?.current_conditions?.station_pressure ?? obsData.barometric_pressure ?? 1013.25);
+  const windAvg = isArr
+    ? (rawObs[2] ?? obsData.wind_avg ?? 2.5)
+    : (rawObs?.wind_avg ?? rawObs?.wind_speed ?? forecastData?.current_conditions?.wind_avg ?? obsData.wind_avg ?? 2.5);
+  const windGust = isArr
+    ? (rawObs[3] ?? obsData.wind_gust ?? 4.0)
+    : (rawObs?.wind_gust ?? forecastData?.current_conditions?.wind_gust ?? obsData.wind_gust ?? windAvg);
+  const windDeg = isArr
+    ? (rawObs[4] ?? obsData.wind_direction ?? 180)
+    : (rawObs?.wind_direction ?? rawObs?.wind_dir ?? forecastData?.current_conditions?.wind_direction ?? obsData.wind_direction ?? 180);
 
-  // UV Index from observation array (index 10) or current conditions
+  // UV Index from observation
   let uv = 0;
-  if (rawObs && rawObs[10] !== undefined && rawObs[10] !== null) {
+  if (isArr && rawObs[10] !== undefined && rawObs[10] !== null) {
     uv = Number(rawObs[10]);
+  } else if (!isArr && rawObs?.uv !== undefined && rawObs?.uv !== null) {
+    uv = Number(rawObs.uv);
   } else if (obsData?.uv !== undefined && obsData?.uv !== null) {
     uv = Number(obsData.uv);
   } else if (forecastData?.current_conditions?.uv !== undefined && forecastData?.current_conditions?.uv !== null) {
@@ -70,13 +84,19 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
   }
   uv = isNaN(uv) || uv < 0 ? 0 : Number(uv.toFixed(1));
 
-  const solar = rawObs ? (rawObs[11] ?? 0) : (obsData.solar_radiation ?? 0);
-  const rainAccum = rawObs ? (rawObs[12] ?? 0) : (obsData.precip_accum_local_day ?? 0);
+  const solar = isArr
+    ? (rawObs[11] ?? 0)
+    : (rawObs?.solar_radiation ?? obsData.solar_radiation ?? forecastData?.current_conditions?.solar_radiation ?? 0);
+  const rainAccum = isArr
+    ? (rawObs[12] ?? 0)
+    : (rawObs?.precip_accum_local_day ?? rawObs?.precip ?? obsData.precip_accum_local_day ?? 0);
 
-  // Lightning strikes count (index 15) and distance in km (index 14)
+  // Lightning strikes count and distance in km
   let lightningCount = 0;
-  if (rawObs && rawObs[15] !== undefined && rawObs[15] !== null) {
+  if (isArr && rawObs[15] !== undefined && rawObs[15] !== null) {
     lightningCount = Number(rawObs[15]);
+  } else if (!isArr && rawObs?.lightning_strike_count !== undefined && rawObs?.lightning_strike_count !== null) {
+    lightningCount = Number(rawObs.lightning_strike_count);
   } else if (obsData?.lightning_strike_count !== undefined && obsData?.lightning_strike_count !== null) {
     lightningCount = Number(obsData.lightning_strike_count);
   } else if (forecastData?.current_conditions?.lightning_strike_count !== undefined) {

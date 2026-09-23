@@ -29,7 +29,7 @@ Module.register("MMM-TempestWx", {
   },
 
   start: function () {
-    Log.info("Starting module: " + this.name);
+    Log.info("[MMM-TempestWx] Starting module: " + this.name);
     this.loaded = false;
     this.stationData = null;
     this.errorMessage = null;
@@ -39,15 +39,39 @@ Module.register("MMM-TempestWx", {
 
     // Send config to node_helper to initiate API polling via built-in Node.js
     this.sendSocketNotification("CONFIG", this.config);
+
+    // Timeout: if no response from node_helper after 12s, provide actionable diagnostic
+    this.loadingTimeout = setTimeout(() => {
+      if (!this.loaded && !this.errorMessage) {
+        this.errorMessage = "TempestWx: Waiting for node_helper.js. Check terminal/PM2 logs or verify node_helper.js is inside modules/MMM-TempestWx/";
+        this.updateDom(300);
+      }
+    }, 12000);
+  },
+
+  notificationReceived: function (notification, payload, sender) {
+    // When MagicMirror core announces all modules are started, re-ping node_helper if not loaded
+    if (notification === "ALL_MODULES_STARTED" && !this.loaded) {
+      Log.info("[MMM-TempestWx] All modules started, ensuring CONFIG sent to node_helper");
+      this.sendSocketNotification("CONFIG", this.config);
+    }
   },
 
   socketNotificationReceived: function (notification, payload) {
+    if (this.loadingTimeout) {
+      clearTimeout(this.loadingTimeout);
+      this.loadingTimeout = null;
+    }
+
     if (notification === "TEMPEST_DATA") {
+      Log.info("[MMM-TempestWx] Successfully received Tempest observation payload.");
       this.loaded = true;
       this.stationData = payload;
       this.errorMessage = null;
       this.updateDom(300);
     } else if (notification === "TEMPEST_ERROR") {
+      const errText = typeof payload === "object" ? (payload.message + (payload.url ? " [URL: " + payload.url + "]" : "")) : payload;
+      Log.error("[MMM-TempestWx] Error from node_helper: " + errText);
       this.errorMessage = payload;
       this.updateDom(300);
     }
@@ -58,7 +82,18 @@ Module.register("MMM-TempestWx", {
     wrapper.className = "mmm-tempest-wx-wrapper";
 
     if (this.errorMessage) {
-      wrapper.innerHTML = \`<div class="tempest-error dimmed small">\${this.errorMessage}</div>\`;
+      const msg = typeof this.errorMessage === "object" ? this.errorMessage.message : this.errorMessage;
+      const url = typeof this.errorMessage === "object" ? this.errorMessage.url : null;
+      wrapper.innerHTML = \`
+        <div class="tempest-card" style="border: 1px solid rgba(239,68,68,0.6); max-width: 440px; padding: 12px; border-radius: 10px; background: rgba(0,0,0,0.85); text-align: left;">
+          <div style="color: #f87171; font-weight: 600; font-size: 13px; margin-bottom: 4px;">⚠️ TempestWx Error</div>
+          <div style="color: #fca5a5; font-size: 11px; margin-bottom: 8px; line-height: 1.4;">\${msg}</div>
+          \${url ? \`
+            <div style="font-size: 10px; color: #94a3b8; margin-bottom: 3px; font-weight: 500;">Request URL:</div>
+            <div style="font-family: monospace; font-size: 10px; color: #38bdf8; word-break: break-all; background: rgba(0,0,0,0.7); padding: 8px; border-radius: 6px; border: 1px solid rgba(255,255,255,0.1); user-select: all;">\${url}</div>
+          \` : ""}
+        </div>
+      \`;
       return wrapper;
     }
 
@@ -182,19 +217,51 @@ Module.register("MMM-TempestWx", {
     \`;
 
     wrapper.appendChild(moduleContainer);
-
-    // If modal is active, append the Touchscreen Modal
-    if (this.modalOpen) {
-      wrapper.appendChild(this.buildModalDom());
-    }
-
     return wrapper;
   },
 
+  getWeatherIconSvg: function (iconName, conditions) {
+    const code = (iconName || conditions || "").toLowerCase();
+    if (code.includes("thunder") || code.includes("tstorm")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none"><path d="M19 15A4 4 0 0 0 17 7.5h-1.26A7 7 0 1 0 5 14.5" stroke="#cbd5e1" stroke-width="2"/><polygon points="13 11 9 17 13 17 11 23 17 15 13 15 15 11" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5"/></svg>';
+    }
+    if (code.includes("snow") || code.includes("flurries") || code.includes("blizzard")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#e0f2fe" stroke-width="2"><path d="M20 16A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15" stroke="#cbd5e1"/><circle cx="8" cy="18" r="1.2" fill="#e0f2fe"/><circle cx="12" cy="20" r="1.2" fill="#e0f2fe"/><circle cx="16" cy="18" r="1.2" fill="#e0f2fe"/><circle cx="10" cy="22" r="1.2" fill="#e0f2fe"/><circle cx="14" cy="22" r="1.2" fill="#e0f2fe"/></svg>';
+    }
+    if (code.includes("rain") || code.includes("drizzle") || code.includes("shower")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25" stroke="#cbd5e1"/><line x1="8" y1="18" x2="7" y2="21" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="11" y2="21" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="18" x2="15" y2="21" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/></svg>';
+    }
+    if (code.includes("sleet") || code.includes("wintry")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 16A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15" stroke="#cbd5e1"/><line x1="8" y1="18" x2="7" y2="21" stroke="#38bdf8" stroke-width="2"/><circle cx="12" cy="20" r="1.2" fill="#e0f2fe"/><circle cx="16" cy="18" r="1.2" fill="#e0f2fe"/></svg>';
+    }
+    if (code.includes("fog") || code.includes("mist") || code.includes("haze")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="6" y1="13" x2="18" y2="13"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+    }
+    if (code.includes("wind")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#67e8f9" stroke-width="2" stroke-linecap="round"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>';
+    }
+    if (code.includes("partly") || code.includes("scattered")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none"><path d="M12 4V2m0 18v-2m8-8h2M2 12h2m13.66-5.66l1.41-1.41M4.93 19.07l1.41-1.41" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" stroke="#f59e0b" stroke-width="2"/><path d="M17.5 19H9a5 5 0 0 1-.3-9.99 5.5 5.5 0 0 1 10.3-2.01A4.5 4.5 0 0 1 17.5 19z" fill="#09090b" stroke="#cbd5e1" stroke-width="2"/></svg>';
+    }
+    if (code.includes("cloud") || code.includes("overcast")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2"><path d="M17.5 19H9a5 5 0 0 1-.3-9.99 5.5 5.5 0 0 1 10.3-2.01A4.5 4.5 0 0 1 17.5 19z"/></svg>';
+    }
+    if (code.includes("night") || code.includes("moon")) {
+      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    }
+    // Default sunny / clear
+    return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+  },
+
   openTouchModal: function () {
-    this.modalOpen = true;
+    this.closeTouchModal(); // clean up any existing modal
+
+    if (!this.stationData) return;
+
     this.modalCountdown = this.config.autoCloseModalSeconds || 30;
-    this.updateDom(200);
+    const modalDom = this.buildModalDom();
+    document.body.appendChild(modalDom);
+    this.modalElement = modalDom;
 
     if (this.countdownTimer) clearInterval(this.countdownTimer);
     this.countdownTimer = setInterval(() => {
@@ -209,13 +276,20 @@ Module.register("MMM-TempestWx", {
   },
 
   closeTouchModal: function () {
-    this.modalOpen = false;
-    if (this.countdownTimer) clearInterval(this.countdownTimer);
-    this.updateDom(200);
+    if (this.countdownTimer) {
+      clearInterval(this.countdownTimer);
+      this.countdownTimer = null;
+    }
+    const existing = document.getElementById("tempest-modal-backdrop") || this.modalElement;
+    if (existing && existing.parentNode) {
+      existing.parentNode.removeChild(existing);
+    }
+    this.modalElement = null;
   },
 
   buildModalDom: function () {
     const modalBackdrop = document.createElement("div");
+    modalBackdrop.id = "tempest-modal-backdrop";
     modalBackdrop.className = "tempest-modal-overlay";
     modalBackdrop.addEventListener("click", () => this.closeTouchModal());
 
@@ -230,16 +304,18 @@ Module.register("MMM-TempestWx", {
     const hourly = (this.stationData.forecast_hourly || []).slice(0, 16);
     const isImperial = this.config.units === "imperial";
 
-    // Render 7-day forecast cards
+    // Render 7-day forecast cards with high-contrast weather icons
     let dailyHtml = daily.map(d => {
       const high = isImperial ? Math.round((d.air_temp_high * 9) / 5 + 32) : Math.round(d.air_temp_high);
       const low = isImperial ? Math.round((d.air_temp_low * 9) / 5 + 32) : Math.round(d.air_temp_low);
+      const iconSvg = this.getWeatherIconSvg(d.icon, d.conditions);
       return \`
         <div class="forecast-day-card">
           <div class="day-title bright">\${d.day_name}</div>
-          <div class="day-conditions dimmed xsmall">\${d.conditions}</div>
+          <div class="day-icon">\${iconSvg}</div>
+          <div class="day-conditions dimmed xsmall">\${d.conditions || ""}</div>
           <div class="day-temps bright small">\${high}° <span class="dimmed xsmall">/ \${low}°</span></div>
-          <div class="day-rain xsmall">\${d.precip_probability}% rain</div>
+          <div class="day-rain xsmall">\${d.precip_probability || 0}% rain</div>
         </div>
       \`;
     }).join("");
@@ -250,10 +326,12 @@ Module.register("MMM-TempestWx", {
       const speed = isImperial ? Math.round(h.wind_avg * 2.23694) : Math.round(h.wind_avg * 3.6);
       const gust = isImperial ? Math.round(h.wind_gust * 2.23694) : Math.round(h.wind_gust * 3.6);
       const rain = isImperial ? (h.precip_accum * 0.0393701).toFixed(2) + "in" : (h.precip_accum || 0).toFixed(1) + "mm";
+      const iconSvg = this.getWeatherIconSvg(h.icon, h.conditions);
 
       return \`
         <div class="hourly-col">
           <div class="hourly-time dimmed xsmall">\${h.hour_label}</div>
+          <div class="hourly-icon">\${iconSvg}</div>
           <div class="hourly-temp bright small">\${temp}°</div>
           <div class="hourly-hum cyan-text xsmall">\${h.relative_humidity || 50}%</div>
           <div class="hourly-wind xsmall">
@@ -310,13 +388,14 @@ const https = require("https");
 
 module.exports = NodeHelper.create({
   start: function () {
-    console.log("Starting node helper for: " + this.name);
+    console.log("[MMM-TempestWx] Node helper started successfully.");
     this.config = null;
     this.pollTimer = null;
   },
 
   socketNotificationReceived: function (notification, payload) {
     if (notification === "CONFIG") {
+      console.log("[MMM-TempestWx] Received CONFIG from frontend. Station ID:", payload ? payload.stationId : "undefined");
       this.config = payload;
       this.fetchTempestData();
 
@@ -330,9 +409,22 @@ module.exports = NodeHelper.create({
   },
 
   /**
-   * Helper utilizing built-in Node.js https.get with native Promise
+   * Helper utilizing modern built-in fetch or Node.js https.get with native Promise
    */
-  httpGetJson: function (url) {
+  httpGetJson: async function (url) {
+    if (typeof fetch === "function") {
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "MagicMirror-MMM-TempestWx/1.0"
+        }
+      });
+      if (!response.ok) {
+        throw new Error(\`HTTP \${response.status}: \${response.statusText}\`);
+      }
+      return await response.json();
+    }
+
     return new Promise((resolve, reject) => {
       const options = {
         headers: {
@@ -374,56 +466,90 @@ module.exports = NodeHelper.create({
       return;
     }
 
-    const { stationId, token } = this.config;
-    const obsUrl = \`https://swd.weatherflow.com/id/observations/station/\${encodeURIComponent(stationId)}?token=\${encodeURIComponent(token)}\`;
-    const forecastUrl = \`https://swd.weatherflow.com/id/better_forecast?station_id=\${encodeURIComponent(stationId)}&token=\${encodeURIComponent(token)}\`;
+    const stationId = String(this.config.stationId).trim();
+    const token = String(this.config.token).trim();
+
+    // WeatherFlow REST API base endpoint is /swd/rest/
+    const obsUrl = \`https://swd.weatherflow.com/swd/rest/observations/station/\${stationId}?token=\${token}\`;
+    const forecastUrl = \`https://swd.weatherflow.com/swd/rest/better_forecast?station_id=\${stationId}&token=\${token}\`;
+
+    console.log(\`[MMM-TempestWx] Fetching data for Station ID: \${stationId}\`);
 
     try {
       // Parallel fetch using built-in Node.js https
       const [obsData, forecastData] = await Promise.all([
         this.httpGetJson(obsUrl),
         this.httpGetJson(forecastUrl).catch((err) => {
-          console.warn("TempestWx: Forecast API notice: " + err.message);
+          console.warn("[MMM-TempestWx] Forecast API notice: " + err.message);
           return null;
         })
       ]);
 
-      const rawObs = obsData?.obs?.[0];
+      // WeatherFlow station endpoint returns an array of objects [ { air_temperature: ... } ]
+      // WeatherFlow device endpoint returns an array of arrays [ [ timestamp, ..., air_temp ] ]
+      const rawObs = obsData?.obs?.[0] || obsData?.obs || obsData;
       if (!rawObs) {
-        throw new Error("No observation array returned for station " + stationId);
+        throw new Error("No observation data returned for station " + stationId);
       }
 
-      // Tempest obs indices:
-      // [0]=epoch, [2]=wind_avg, [3]=wind_gust, [4]=wind_dir,
-      // [6]=pressure, [7]=air_temp, [8]=rel_humidity, [10]=uv, [11]=solar_rad,
-      // [12]=rain_accum, [14]=lightning_dist, [15]=lightning_count, [16]=battery
-      const airTemp = rawObs[7];
-      const relHumidity = rawObs[8];
-      const pressure = rawObs[6];
-      const windAvg = rawObs[2];
-      const windGust = rawObs[3];
-      const windDir = rawObs[4];
-      const dewPoint = airTemp - ((100 - relHumidity) / 5);
+      const isArr = Array.isArray(rawObs);
+      const airTemp = isArr
+        ? rawObs[7]
+        : (rawObs.air_temperature ?? rawObs.air_temp ?? forecastData?.current_conditions?.air_temperature ?? 0);
+      const relHumidity = isArr
+        ? rawObs[8]
+        : (rawObs.relative_humidity ?? rawObs.rh ?? forecastData?.current_conditions?.relative_humidity ?? 50);
+      const pressure = isArr
+        ? rawObs[6]
+        : (rawObs.barometric_pressure ?? rawObs.station_pressure ?? rawObs.sea_level_pressure ?? forecastData?.current_conditions?.station_pressure ?? 1013.25);
+      const windAvg = isArr
+        ? rawObs[2]
+        : (rawObs.wind_avg ?? rawObs.wind_speed ?? forecastData?.current_conditions?.wind_avg ?? 0);
+      const windGust = isArr
+        ? rawObs[3]
+        : (rawObs.wind_gust ?? forecastData?.current_conditions?.wind_gust ?? windAvg);
+      const windDir = isArr
+        ? rawObs[4]
+        : (rawObs.wind_direction ?? rawObs.wind_dir ?? forecastData?.current_conditions?.wind_direction ?? 0);
+      const uv = isArr
+        ? (rawObs[10] || 0)
+        : (rawObs.uv ?? forecastData?.current_conditions?.uv ?? 0);
+      const solarRad = isArr
+        ? (rawObs[11] || 0)
+        : (rawObs.solar_radiation ?? forecastData?.current_conditions?.solar_radiation ?? 0);
+      const precip = isArr
+        ? (rawObs[12] || 0)
+        : (rawObs.precip_accum_local_day ?? rawObs.precip ?? 0);
+      const lightningDist = isArr
+        ? (rawObs[14] || 0)
+        : (rawObs.lightning_strike_last_distance ?? rawObs.strike_distance ?? 0);
+      const lightningCount = isArr
+        ? (rawObs[15] || 0)
+        : (rawObs.lightning_strike_count ?? rawObs.strike_count ?? 0);
+      const battery = isArr
+        ? (rawObs[16] || 2.8)
+        : (rawObs.battery ?? 2.8);
+      const dewPoint = rawObs.dew_point ?? (airTemp - ((100 - relHumidity) / 5));
 
       const observation = {
         station_id: stationId,
         station_name: obsData.station_name || "Tempest Station #" + stationId,
-        air_temperature: airTemp,
-        relative_humidity: relHumidity,
-        barometric_pressure: pressure,
+        air_temperature: Number(airTemp),
+        relative_humidity: Number(relHumidity),
+        barometric_pressure: Number(pressure),
         pressure_trend: "steady",
-        wind_avg: windAvg,
-        wind_gust: windGust,
-        wind_direction: windDir,
-        wind_direction_cardinal: this.degreesToCardinal(windDir),
-        solar_radiation: rawObs[11] || 0,
-        uv: rawObs[10] || 0,
-        precip_accum_local_day: rawObs[12] || 0,
-        lightning_strike_last_distance: rawObs[14] || 0,
-        lightning_strike_count: rawObs[15] || 0,
-        battery: rawObs[16] || 2.78,
-        feels_like: forecastData?.current_conditions?.feels_like || airTemp,
-        dew_point: dewPoint
+        wind_avg: Number(windAvg),
+        wind_gust: Number(windGust),
+        wind_direction: Number(windDir),
+        wind_direction_cardinal: this.degreesToCardinal(Number(windDir)),
+        solar_radiation: Number(solarRad),
+        uv: Number(uv),
+        precip_accum_local_day: Number(precip),
+        lightning_strike_last_distance: Number(lightningDist),
+        lightning_strike_count: Number(lightningCount),
+        battery: Number(battery),
+        feels_like: Number(forecastData?.current_conditions?.feels_like ?? airTemp),
+        dew_point: Number(dewPoint)
       };
 
       // Extract 7-day forecast
@@ -466,6 +592,8 @@ module.exports = NodeHelper.create({
         });
       }
 
+      console.log("[MMM-TempestWx] Successfully retrieved observation for " + (obsData.station_name || "station " + stationId) + ". Temp: " + airTemp + " C (" + Math.round((Number(airTemp) * 9) / 5 + 32) + " F)");
+
       this.sendSocketNotification("TEMPEST_DATA", {
         station_id: stationId,
         station_name: obsData.station_name,
@@ -474,8 +602,17 @@ module.exports = NodeHelper.create({
         forecast_hourly: forecastHourly
       });
     } catch (error) {
-      console.error("TempestWx API fetch error:", error);
-      this.sendSocketNotification("TEMPEST_ERROR", "TempestWx: " + error.message);
+      console.error("[MMM-TempestWx] API fetch error:", error.message || error);
+      let errStr = error.message || String(error);
+      if (errStr.includes("404")) {
+        errStr = \`Station ID \${stationId} not found (HTTP 404). Make sure you are using your numerical Station ID from tempestwx.com/settings/stations, not a Device ID or serial number.\`;
+      } else if (errStr.includes("401")) {
+        errStr = "Unauthorized (HTTP 401). Please check your Tempest Personal Access Token in tempestwx.com > Settings > Data Authorizations.";
+      }
+      this.sendSocketNotification("TEMPEST_ERROR", {
+        message: errStr,
+        url: obsUrl
+      });
     }
   },
 
@@ -658,84 +795,217 @@ export function getMmmTempestWxCss(): string {
 
 /* TOUCHSCREEN MODAL STYLES */
 .tempest-modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.85);
-  backdrop-filter: blur(8px);
-  z-index: 9999;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  bottom: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  margin: 0 !important;
+  padding: 24px !important;
+  background: rgba(0, 0, 0, 0.88) !important;
+  backdrop-filter: blur(12px) !important;
+  -webkit-backdrop-filter: blur(12px) !important;
+  z-index: 999999 !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  box-sizing: border-box !important;
+  text-align: left !important;
+  direction: ltr !important;
 }
 
 .tempest-modal-box {
-  width: 90vw;
-  max-width: 960px;
-  background: #09090b;
-  border: 1px solid rgba(255, 255, 255, 0.2);
-  border-radius: 14px;
-  padding: 24px;
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.9);
+  width: 95vw !important;
+  max-width: 1000px !important;
+  max-height: 90vh !important;
+  overflow-y: auto !important;
+  background: #0d0f12 !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 16px !important;
+  padding: 24px !important;
+  box-shadow: 0 25px 60px rgba(0, 0, 0, 0.95) !important;
+  box-sizing: border-box !important;
+  text-align: left !important;
+  direction: ltr !important;
+  color: #fff !important;
 }
 
 .modal-head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.15);
-  padding-bottom: 12px;
-  margin-bottom: 16px;
+  display: flex !important;
+  justify-content: space-between !important;
+  align-items: center !important;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.15) !important;
+  padding-bottom: 12px !important;
+  margin-bottom: 16px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .modal-close-btn {
-  background: #27272a;
-  border: none;
-  color: #fff;
-  padding: 8px 16px;
-  border-radius: 8px;
-  font-size: 13px;
-  cursor: pointer;
+  background: #27272a !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+  padding: 6px 14px !important;
+  border-radius: 8px !important;
+  font-size: 12px !important;
+  cursor: pointer !important;
+  font-weight: 500 !important;
+  transition: background-color 0.2s ease !important;
 }
 
+.modal-close-btn:hover,
+.modal-close-btn:active {
+  background: #3f3f46 !important;
+}
+
+.modal-section-title {
+  font-size: 11px !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase !important;
+  color: #94a3b8 !important;
+  margin-bottom: 10px !important;
+  font-weight: 600 !important;
+}
+
+/* 7-DAY EXTENDED FORECAST CARDS */
 .forecast-grid {
-  display: grid;
-  grid-template-columns: repeat(7, 1fr);
-  gap: 10px;
-  margin-bottom: 20px;
+  display: grid !important;
+  grid-template-columns: repeat(7, 1fr) !important;
+  gap: 10px !important;
+  margin-bottom: 24px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
 }
 
 .forecast-day-card {
-  background: rgba(255, 255, 255, 0.04);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 8px;
-  padding: 10px;
-  text-align: center;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 10px !important;
+  padding: 12px 6px !important;
+  text-align: center !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  min-height: 145px !important;
+  box-sizing: border-box !important;
 }
 
-.wind-grid {
-  display: grid;
-  grid-template-columns: repeat(16, 1fr);
-  gap: 6px;
-  overflow-x: auto;
-  padding: 8px 0;
+.forecast-day-card .day-title {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  color: #fff !important;
+  margin-bottom: 4px !important;
 }
 
-.wind-hourly-col {
-  text-align: center;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
+.day-icon,
+.hourly-icon {
+  width: 36px !important;
+  height: 36px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  margin: 4px 0 !important;
+}
+
+.day-icon svg,
+.hourly-icon svg {
+  width: 28px !important;
+  height: 28px !important;
+  display: block !important;
+}
+
+.forecast-day-card .day-conditions {
+  font-size: 10px !important;
+  color: #94a3b8 !important;
+  min-height: 24px !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  line-height: 1.2 !important;
+  text-align: center !important;
+}
+
+.forecast-day-card .day-temps {
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  margin-top: 4px !important;
+}
+
+.forecast-day-card .day-rain {
+  font-size: 10px !important;
+  color: #38bdf8 !important;
+  margin-top: 2px !important;
+}
+
+/* HOURLY TRENDS SECTION */
+.hourly-scroll-container {
+  overflow-x: auto !important;
+  -webkit-overflow-scrolling: touch !important;
+  width: 100% !important;
+  padding-bottom: 10px !important;
+  box-sizing: border-box !important;
+}
+
+.hourly-grid {
+  display: flex !important;
+  gap: 8px !important;
+  min-width: max-content !important;
+  box-sizing: border-box !important;
+}
+
+.hourly-col {
+  flex: 0 0 74px !important;
+  width: 74px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.08) !important;
+  border-radius: 8px !important;
+  padding: 10px 4px !important;
+  text-align: center !important;
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  min-height: 160px !important;
+  box-sizing: border-box !important;
+}
+
+.hourly-time {
+  font-size: 10px !important;
+  color: #94a3b8 !important;
+  margin-bottom: 2px !important;
+}
+
+.hourly-temp {
+  font-size: 13px !important;
+  font-weight: 600 !important;
+  margin-bottom: 2px !important;
+}
+
+.hourly-wind {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  gap: 3px !important;
+  font-size: 11px !important;
+  margin: 3px 0 !important;
 }
 
 .wind-vector-glyph {
-  width: 16px;
-  height: 16px;
-  margin: 6px 0;
+  width: 14px !important;
+  height: 14px !important;
+  stroke: #94a3b8 !important;
 }
+
+/* COLOR UTILITIES */
+.cyan-text { color: #38bdf8 !important; }
+.orange-text { color: #fb923c !important; }
+.indigo-text { color: #818cf8 !important; }
+.xxsmall { font-size: 9px !important; }
+.mt-4 { margin-top: 16px !important; }
+.ml-2 { margin-left: 8px !important; }
 `;
 }
 
@@ -744,6 +1014,7 @@ export function getPackageJson(): string {
     {
       name: "MMM-TempestWx",
       version: "1.0.0",
+      type: "commonjs",
       description: "MagicMirror² module for Tempest weather station with touch-enabled forecast & wind trend modals",
       main: "MMM-TempestWx.js",
       scripts: {
@@ -834,6 +1105,78 @@ Add the module to your \`config/config.js\` file:
 1. Log into your Tempest account at [tempestwx.com](https://tempestwx.com/).
 2. Open **Settings > Stations** and select your station to find your **Station ID** in the URL or station info.
 3. Open **Settings > Data Authorizations** and click **Create Token** to generate your Personal Access Token.
+
+---
+
+## Troubleshooting: "No modules/MMM-TempestWx/MMM-TempestWx.js found"
+
+If MagicMirror displays the error:
+\`\`\`text
+No \MagicMirror\modules\MMM-TempestWx/MMM-TempestWx.js found for module: MMM-TempestWx.
+\`\`\`
+
+This means MagicMirror cannot find the main file at that exact path. Check these 3 common causes:
+
+### 1. Nested Folder After Unzipping (Most Common)
+If you extracted \`MMM-TempestWx.zip\` inside a folder you already named \`MMM-TempestWx\`, the files may be nested two levels deep:
+- ❌ **Incorrect:** \`MagicMirror/modules/MMM-TempestWx/MMM-TempestWx/MMM-TempestWx.js\`
+- ✅ **Correct:** \`MagicMirror/modules/MMM-TempestWx/MMM-TempestWx.js\`
+
+**Fix on Linux / Raspberry Pi:**
+\`\`\`bash
+cd ~/MagicMirror/modules
+# If you see a nested folder:
+mv MMM-TempestWx/MMM-TempestWx/* MMM-TempestWx/
+rmdir MMM-TempestWx/MMM-TempestWx
+\`\`\`
+
+**Fix on Windows (PowerShell):**
+\`\`\`powershell
+cd \MagicMirror\modules
+# Move nested files up one level if needed:
+Move-Item .\MMM-TempestWx\MMM-TempestWx\* .\MMM-TempestWx\
+\`\`\`
+
+### 2. Case Sensitivity & Exact Naming
+MagicMirror requires the folder and filename to match **character-for-character** (case-sensitive):
+- Folder name: **\`MMM-TempestWx\`** (capital \`MMM\`, capital \`T\`, capital \`W\`, lowercase \`x\`)
+- Main script: **\`MMM-TempestWx.js\`**
+
+### 3. Hidden File Extension on Windows
+If you created or saved the file manually in Windows Notepad, Windows may have named it:
+- ❌ \`MMM-TempestWx.js.txt\` or \`MMM-TempestWx.js.js\`
+- In File Explorer, check **View > File name extensions** and verify it is named \`MMM-TempestWx.js\`.
+
+### Verifying the Folder Structure
+Run \`ls -la ~/MagicMirror/modules/MMM-TempestWx\` (or \`dir \MagicMirror\modules\MMM-TempestWx\` on Windows):
+\`\`\`text
+MagicMirror/
+└── modules/
+    └── MMM-TempestWx/
+        ├── MMM-TempestWx.js   <-- MUST be directly in this folder
+        ├── node_helper.js
+        ├── MMM-TempestWx.css
+        ├── package.json
+        └── README.md
+\`\`\`
+
+---
+
+## Troubleshooting: "require is not defined in ES module scope"
+
+If you see:
+\`\`\`text
+Error when loading MMM-TempestWx: require is not defined in ES module scope, you can use import instead
+package.json contains "type": "module"
+\`\`\`
+
+MagicMirror modules use standard CommonJS (\`require\` and \`module.exports\`). This error means your \`MMM-TempestWx/package.json\` file accidentally contains \`"type": "module"\`.
+
+### Solution:
+1. Open \`modules/MMM-TempestWx/package.json\` and either:
+   - **Delete the line** \`"type": "module",\` OR
+   - **Change it to** \`"type": "commonjs",\`
+2. *Alternatively:* Because this module has zero dependencies and uses native Node.js APIs, you can simply **delete \`package.json\`** from the \`MMM-TempestWx\` folder entirely!
 
 ---
 

@@ -21,15 +21,15 @@ async function startServer() {
 
   // Built-in Node.js API call for Tempest Weather Station observations
   app.get('/api/tempest/observations/:stationId', async (req, res) => {
-    const { stationId } = req.params;
-    const token = (req.query.token as string) || process.env.TEMPEST_API_TOKEN || '';
+    const stationId = String(req.params.stationId || '').trim();
+    const token = String((req.query.token as string) || process.env.TEMPEST_API_TOKEN || '').trim();
 
     if (!token) {
       return res.status(400).json({ error: 'Token parameter is required for Tempest API.' });
     }
 
     try {
-      const url = `https://swd.weatherflow.com/id/observations/station/${encodeURIComponent(stationId)}?token=${encodeURIComponent(token)}`;
+      const url = `https://swd.weatherflow.com/swd/rest/observations/station/${stationId}?token=${token}`;
       // Built-in Node.js fetch
       const response = await fetch(url, {
         headers: {
@@ -54,15 +54,15 @@ async function startServer() {
 
   // Built-in Node.js API call for Tempest 7-day & hourly forecast
   app.get('/api/tempest/forecast/:stationId', async (req, res) => {
-    const { stationId } = req.params;
-    const token = (req.query.token as string) || process.env.TEMPEST_API_TOKEN || '';
+    const stationId = String(req.params.stationId || '').trim();
+    const token = String((req.query.token as string) || process.env.TEMPEST_API_TOKEN || '').trim();
 
     if (!token) {
       return res.status(400).json({ error: 'Token parameter is required for Tempest API.' });
     }
 
     try {
-      const url = `https://swd.weatherflow.com/id/better_forecast?station_id=${encodeURIComponent(stationId)}&token=${encodeURIComponent(token)}`;
+      const url = `https://swd.weatherflow.com/swd/rest/better_forecast?station_id=${stationId}&token=${token}`;
       // Built-in Node.js fetch
       const response = await fetch(url, {
         headers: {
