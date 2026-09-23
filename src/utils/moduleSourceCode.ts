@@ -301,8 +301,12 @@ Module.register("MMM-TempestWx", {
     });
 
     const daily = this.stationData.forecast_daily || [];
-    const hourly = (this.stationData.forecast_hourly || []).slice(0, 16);
+    const hourly = (this.stationData.forecast_hourly || []).slice(0, 24);
     const isImperial = this.config.units === "imperial";
+
+    // Set initial active tab and hour index
+    if (!this.activeGraphTab) this.activeGraphTab = "temperature";
+    if (typeof this.activeHourlyIndex !== "number") this.activeHourlyIndex = 0;
 
     // Render 7-day forecast cards with high-contrast weather icons
     let dailyHtml = daily.map(d => {
@@ -320,32 +324,6 @@ Module.register("MMM-TempestWx", {
       \`;
     }).join("");
 
-    // Render hourly cards with Temperature, Humidity, Wind Speed, UV Index, and Rain Accumulation
-    let hourlyHtml = hourly.map(h => {
-      const temp = isImperial ? Math.round((h.air_temp * 9) / 5 + 32) : Math.round(h.air_temp);
-      const speed = isImperial ? Math.round(h.wind_avg * 2.23694) : Math.round(h.wind_avg * 3.6);
-      const gust = isImperial ? Math.round(h.wind_gust * 2.23694) : Math.round(h.wind_gust * 3.6);
-      const rain = isImperial ? (h.precip_accum * 0.0393701).toFixed(2) + "in" : (h.precip_accum || 0).toFixed(1) + "mm";
-      const iconSvg = this.getWeatherIconSvg(h.icon, h.conditions);
-
-      return \`
-        <div class="hourly-col">
-          <div class="hourly-time dimmed xsmall">\${h.hour_label}</div>
-          <div class="hourly-icon">\${iconSvg}</div>
-          <div class="hourly-temp bright small">\${temp}°</div>
-          <div class="hourly-hum cyan-text xsmall">\${h.relative_humidity || 50}%</div>
-          <div class="hourly-wind xsmall">
-            <svg class="wind-vector-glyph" style="transform: rotate(\${h.wind_direction}deg);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-              <path d="M12 19V5M5 12l7-7 7 7"/>
-            </svg>
-            <span>\${speed}</span>
-          </div>
-          <div class="hourly-uv orange-text xxsmall">UV \${(h.uv || 0).toFixed(1)}</div>
-          <div class="hourly-rain indigo-text xxsmall">\${h.precip_probability || 0}% · \${rain}</div>
-        </div>
-      \`;
-    }).join("");
-
     modalBox.innerHTML = \`
       <div class="modal-head">
         <div>
@@ -358,17 +336,662 @@ Module.register("MMM-TempestWx", {
       <div class="modal-section-title dimmed small">7-Day Extended Forecast</div>
       <div class="forecast-grid">\${dailyHtml}</div>
 
-      <div class="modal-section-title dimmed small mt-4">Hourly Trends (Temp · Humidity · Wind · UV · Rain)</div>
-      <div class="hourly-scroll-container">
-        <div class="hourly-grid">\${hourlyHtml}</div>
-      </div>
+      <!-- 24-HOUR LOCAL TELEMETRY TRENDS SECTION -->
+      <div class="telemetry-section-container" id="tempest-telemetry-container"></div>
     \`;
 
     const closeBtn = modalBox.querySelector("#tempest-modal-close-btn");
     if (closeBtn) closeBtn.addEventListener("click", () => this.closeTouchModal());
 
+    // Render interactive telemetry trends graphs
+    const telemetryContainer = modalBox.querySelector("#tempest-telemetry-container");
+    if (telemetryContainer) {
+      this.renderTelemetrySection(telemetryContainer, hourly, isImperial);
+    }
+
     modalBackdrop.appendChild(modalBox);
     return modalBackdrop;
+  },
+
+  renderTelemetrySection: function (container, hourly, isImperial) {
+    if (!hourly || hourly.length === 0) return;
+
+    // Helper functions to safely extract numeric temperatures regardless of API property name
+    const getHourTemp = (h) => {
+      if (!h) return 20;
+      const v = h.air_temperature !== undefined ? h.air_temperature : (h.air_temp !== undefined ? h.air_temp : (h.temp !== undefined ? h.temp : 20));
+      const n = typeof v === "number" ? v : parseFloat(v);
+      return isNaN(n) ? 20 : n;
+    };
+    const getHourFeels = (h) => {
+      if (!h) return getHourTemp(h);
+      const v = h.feels_like !== undefined ? h.feels_like : (h.air_temperature !== undefined ? h.air_temperature : h.air_temp);
+      const n = typeof v === "number" ? v : parseFloat(v);
+      return isNaN(n) ? getHourTemp(h) : n;
+    };
+
+    const firstHourTemp = getHourTemp(hourly[0]);
+    const firstHourTempFormatted = Math.round(isImperial ? (firstHourTemp * 9) / 5 + 32 : firstHourTemp) + "°";
+
+    const tabs = [
+      {
+        id: "temperature",
+        title: "Temperature",
+        icon: '<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>',
+        colorClass: "amber-tab",
+        quickValue: firstHourTempFormatted
+      },
+      {
+        id: "humidity",
+        title: "Humidity",
+        icon: '<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>',
+        colorClass: "cyan-tab",
+        quickValue: (hourly[0].relative_humidity || 50) + "%"
+      },
+      {
+        id: "wind",
+        title: "Wind Speed",
+        icon: '<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>',
+        colorClass: "sky-tab",
+        quickValue: Math.round(isImperial ? hourly[0].wind_avg * 2.23694 : hourly[0].wind_avg * 3.6) + (isImperial ? " mph" : " km/h")
+      },
+      {
+        id: "uv",
+        title: "UV Index",
+        icon: '<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>',
+        colorClass: "orange-tab",
+        quickValue: "UV " + (hourly[0].uv || 0).toFixed(1)
+      },
+      {
+        id: "rain",
+        title: "Rain Accumulation",
+        icon: '<svg class="tab-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25" stroke="currentColor"/><line x1="8" y1="18" x2="7" y2="21" stroke="currentColor" stroke-linecap="round"/><line x1="12" y1="18" x2="11" y2="21" stroke="currentColor" stroke-linecap="round"/><line x1="16" y1="18" x2="15" y2="21" stroke="currentColor" stroke-linecap="round"/></svg>',
+        colorClass: "indigo-tab",
+        quickValue: isImperial ? (hourly[0].precip_accum * 0.0393701).toFixed(2) + " in" : (hourly[0].precip_accum || 0).toFixed(1) + " mm"
+      }
+    ];
+
+    const currentTabIdx = Math.max(0, tabs.findIndex(t => t.id === this.activeGraphTab));
+    this.activeGraphTab = tabs[currentTabIdx].id;
+
+    let tabsHtml = tabs.map((tab) => {
+      const isActive = tab.id === this.activeGraphTab;
+      return \`
+        <button type="button" class="graph-tab-btn \${tab.colorClass} \${isActive ? 'active' : ''}" data-tab="\${tab.id}">
+          <span class="tab-icon-wrap">\${tab.icon}</span>
+          <span class="tab-label">\${tab.title}</span>
+          <span class="tab-pill">\${tab.quickValue}</span>
+        </button>
+      \`;
+    }).join("");
+
+    container.innerHTML = \`
+      <div class="telemetry-wrapper">
+        <div class="telemetry-header">
+          <div class="telemetry-title-box">
+            <div class="telemetry-title-row">
+              <span class="pulse-indicator"></span>
+              <span class="telemetry-title">24-Hour Local Telemetry Trends</span>
+            </div>
+            <div class="telemetry-sub dimmed xsmall">Select graphs: Temperature, Humidity, Wind Speed, UV Index, & Rain</div>
+          </div>
+          <div class="telemetry-nav-controls">
+            <button class="telemetry-arrow-btn" id="telemetry-prev-btn" title="Previous Graph">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="15 18 9 12 15 6"/></svg>
+            </button>
+            <span class="telemetry-page-counter dimmed">\${currentTabIdx + 1} / \${tabs.length}</span>
+            <button class="telemetry-arrow-btn" id="telemetry-next-btn" title="Next Graph">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><polyline points="9 18 15 12 9 6"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <div class="graph-tabs-bar">\${tabsHtml}</div>
+
+        <div class="active-graph-card" id="active-graph-card-content">
+          \${this.generateGraphCardHtml(this.activeGraphTab, hourly, isImperial, this.activeHourlyIndex)}
+        </div>
+      </div>
+    \`;
+
+    const tabBtns = container.querySelectorAll(".graph-tab-btn");
+    tabBtns.forEach(btn => {
+      btn.addEventListener("click", () => {
+        this.activeGraphTab = btn.getAttribute("data-tab");
+        this.modalCountdown = this.config.autoCloseModalSeconds || 30;
+        this.renderTelemetrySection(container, hourly, isImperial);
+      });
+    });
+
+    const prevBtn = container.querySelector("#telemetry-prev-btn");
+    if (prevBtn) {
+      prevBtn.addEventListener("click", () => {
+        const nextIdx = (currentTabIdx - 1 + tabs.length) % tabs.length;
+        this.activeGraphTab = tabs[nextIdx].id;
+        this.modalCountdown = this.config.autoCloseModalSeconds || 30;
+        this.renderTelemetrySection(container, hourly, isImperial);
+      });
+    }
+
+    const nextBtn = container.querySelector("#telemetry-next-btn");
+    if (nextBtn) {
+      nextBtn.addEventListener("click", () => {
+        const nextIdx = (currentTabIdx + 1) % tabs.length;
+        this.activeGraphTab = tabs[nextIdx].id;
+        this.modalCountdown = this.config.autoCloseModalSeconds || 30;
+        this.renderTelemetrySection(container, hourly, isImperial);
+      });
+    }
+
+    this.attachScrubberEvents(container, hourly, isImperial);
+  },
+
+  attachScrubberEvents: function (container, hourly, isImperial) {
+    const touchCols = container.querySelectorAll(".scrubber-touch-col");
+    touchCols.forEach(col => {
+      const idx = parseInt(col.getAttribute("data-index"), 10);
+      const updateIdx = () => {
+        if (this.activeHourlyIndex !== idx) {
+          this.activeHourlyIndex = idx;
+          this.modalCountdown = this.config.autoCloseModalSeconds || 30;
+          const graphCard = container.querySelector("#active-graph-card-content");
+          if (graphCard) {
+            graphCard.innerHTML = this.generateGraphCardHtml(this.activeGraphTab, hourly, isImperial, idx);
+            this.attachScrubberEvents(container, hourly, isImperial);
+          }
+        }
+      };
+
+      col.addEventListener("mouseenter", updateIdx);
+      col.addEventListener("click", updateIdx);
+      col.addEventListener("touchstart", (e) => {
+        e.preventDefault();
+        updateIdx();
+      }, { passive: false });
+    });
+  },
+
+  generateGraphCardHtml: function (graphType, hourly, isImperial, activeIdx) {
+    const activeHour = hourly[activeIdx] || hourly[0] || {};
+    const count = hourly.length;
+    const condIcon = this.getWeatherIconSvg(activeHour.icon, activeHour.conditions);
+
+    let timelineLabels = "";
+    hourly.forEach((h, i) => {
+      const isActive = i === activeIdx;
+      const label = h.hour_label || (i + "h");
+      timelineLabels += \`<div class="timeline-hour-col \${isActive ? 'active-hour' : ''}">\${label}</div>\`;
+    });
+
+    let touchZones = "";
+    hourly.forEach((_, i) => {
+      touchZones += \`<div class="scrubber-touch-col" data-index="\${i}"></div>\`;
+    });
+
+    if (graphType === "temperature") {
+      let min = Infinity, max = -Infinity;
+      hourly.forEach(h => {
+        const raw = h.air_temperature !== undefined ? h.air_temperature : (h.air_temp !== undefined ? h.air_temp : (h.temp !== undefined ? h.temp : 20));
+        const num = typeof raw === "number" && !isNaN(raw) ? raw : (parseFloat(raw) || 20);
+        const t = isImperial ? (num * 9) / 5 + 32 : num;
+        if (t < min) min = t;
+        if (t > max) max = t;
+      });
+      if (min === Infinity || max === -Infinity) {
+        min = isImperial ? 60 : 15;
+        max = isImperial ? 75 : 24;
+      }
+      min = Math.floor(min);
+      max = Math.ceil(max);
+      const span = Math.max(4, max - min);
+      const yMin = min - span * 0.15;
+      const yMax = max + span * 0.15;
+      const ySpan = Math.max(1, yMax - yMin);
+
+      const pts = hourly.map((h, i) => {
+        const raw = h.air_temperature !== undefined ? h.air_temperature : (h.air_temp !== undefined ? h.air_temp : (h.temp !== undefined ? h.temp : 20));
+        const num = typeof raw === "number" && !isNaN(raw) ? raw : (parseFloat(raw) || 20);
+        const t = isImperial ? (num * 9) / 5 + 32 : num;
+        const x = (i / (count - 1)) * 760 + 20;
+        const y = 180 - ((t - yMin) / ySpan) * 155;
+        return \`\${x.toFixed(1)},\${y.toFixed(1)}\`;
+      });
+
+      const rawActive = activeHour.air_temperature !== undefined ? activeHour.air_temperature : (activeHour.air_temp !== undefined ? activeHour.air_temp : (activeHour.temp !== undefined ? activeHour.temp : 20));
+      const numActive = typeof rawActive === "number" && !isNaN(rawActive) ? rawActive : (parseFloat(rawActive) || 20);
+      const rawActiveFeels = activeHour.feels_like !== undefined ? activeHour.feels_like : rawActive;
+      const numActiveFeels = typeof rawActiveFeels === "number" && !isNaN(rawActiveFeels) ? rawActiveFeels : (parseFloat(rawActiveFeels) || numActive);
+      const activeTemp = Math.round(isImperial ? (numActive * 9) / 5 + 32 : numActive);
+      const activeFeels = Math.round(isImperial ? (numActiveFeels * 9) / 5 + 32 : numActiveFeels);
+      const cursorX = ((activeIdx / (count - 1)) * 760 + 20).toFixed(1);
+      const cursorY = (180 - ((activeTemp - yMin) / ySpan) * 155).toFixed(1);
+
+      return \`
+        <div class="graph-card-header">
+          <div class="graph-card-title-box">
+            <div class="graph-card-title text-amber">
+              <svg class="graph-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 14.76V3.5a2.5 2.5 0 0 0-5 0v11.26a4.5 4.5 0 1 0 5 0z"/></svg>
+              <span>Hourly Air Temperature & Thermal Trends</span>
+            </div>
+            <div class="graph-card-sub dimmed xsmall">24-hour diurnal thermal curve, ambient temp, and real-feel index</div>
+          </div>
+          <div class="scrubber-badge">
+            <span class="scrubber-time dimmed">\${activeHour.hour_label || "Now"}</span>
+            <span class="scrubber-sep">|</span>
+            <span class="scrubber-val text-amber">\${activeTemp}°</span>
+            <span class="scrubber-secondary dimmed">Feels \${activeFeels}°</span>
+            <span class="scrubber-cond">\${condIcon} <span>\${activeHour.conditions || "Clear"}</span></span>
+          </div>
+        </div>
+
+        <div class="svg-graph-wrapper">
+          <div class="svg-grid-lines">
+            <div class="grid-line"><span>Max: \${max}°</span></div>
+            <div class="grid-line"><span>Mid: \${Math.round((max + min) / 2)}°</span></div>
+            <div class="grid-line"><span>Min: \${min}°</span></div>
+          </div>
+          <svg class="telemetry-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="tempGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f59e0b" stop-opacity="0.45"/>
+                <stop offset="65%" stop-color="#f97316" stop-opacity="0.15"/>
+                <stop offset="100%" stop-color="#38bdf8" stop-opacity="0.0"/>
+              </linearGradient>
+            </defs>
+            <path d="M 20,185 L \${pts.join(' L ')} L 780,185 Z" fill="url(#tempGradient)"/>
+            <path d="M \${pts.join(' L ')}" fill="none" stroke="#f59e0b" stroke-width="2.5"/>
+            <line x1="\${cursorX}" y1="10" x2="\${cursorX}" y2="185" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+            <circle cx="\${cursorX}" cy="\${cursorY}" r="5.5" fill="#f59e0b" stroke="#000000" stroke-width="2"/>
+          </svg>
+          <div class="svg-touch-overlay">\${touchZones}</div>
+        </div>
+
+        <div class="timeline-labels-row">\${timelineLabels}</div>
+
+        <div class="graph-stats-grid">
+          <div class="stat-tile">
+            <div class="stat-name dimmed">MIN TEMP</div>
+            <div class="stat-val bright">\${min}°</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">MAX TEMP</div>
+            <div class="stat-val bright">\${max}°</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">CURRENT TEMP</div>
+            <div class="stat-val text-amber">\${activeTemp}°</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">FEELS LIKE</div>
+            <div class="stat-val bright">\${activeFeels}°</div>
+          </div>
+        </div>
+      \`;
+    }
+
+    if (graphType === "humidity") {
+      let min = 100, max = 0, sum = 0;
+      hourly.forEach(h => {
+        const rh = h.relative_humidity ?? 50;
+        if (rh < min) min = rh;
+        if (rh > max) max = rh;
+        sum += rh;
+      });
+      const avg = Math.round(sum / count);
+      const span = Math.max(15, max - min);
+      const yMin = Math.max(0, min - span * 0.1);
+      const yMax = Math.min(100, max + span * 0.1);
+      const ySpan = Math.max(10, yMax - yMin);
+
+      const pts = hourly.map((h, i) => {
+        const rh = h.relative_humidity ?? 50;
+        const x = (i / (count - 1)) * 760 + 20;
+        const y = 180 - ((rh - yMin) / ySpan) * 155;
+        return \`\${x.toFixed(1)},\${y.toFixed(1)}\`;
+      });
+
+      const activeRh = activeHour.relative_humidity ?? 50;
+      const cursorX = ((activeIdx / (count - 1)) * 760 + 20).toFixed(1);
+      const cursorY = (180 - ((activeRh - yMin) / ySpan) * 155).toFixed(1);
+      const comfort = activeRh < 35 ? "Dry" : activeRh > 65 ? "Humid" : "Comfortable";
+
+      return \`
+        <div class="graph-card-header">
+          <div class="graph-card-title-box">
+            <div class="graph-card-title text-cyan">
+              <svg class="graph-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z"/></svg>
+              <span>Relative Humidity & Moisture Spectrum</span>
+            </div>
+            <div class="graph-card-sub dimmed xsmall">24-hour moisture saturation curve & comfort envelope</div>
+          </div>
+          <div class="scrubber-badge">
+            <span class="scrubber-time dimmed">\${activeHour.hour_label || "Now"}</span>
+            <span class="scrubber-sep">|</span>
+            <span class="scrubber-val text-cyan">\${activeRh}%</span>
+            <span class="scrubber-secondary dimmed">\${comfort}</span>
+            <span class="scrubber-cond">\${condIcon} <span>\${activeHour.conditions || ""}</span></span>
+          </div>
+        </div>
+
+        <div class="svg-graph-wrapper">
+          <div class="svg-grid-lines">
+            <div class="grid-line"><span>Max: \${max}%</span></div>
+            <div class="grid-line"><span>Mid: \${Math.round((max + min) / 2)}%</span></div>
+            <div class="grid-line"><span>Min: \${min}%</span></div>
+          </div>
+          <svg class="telemetry-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="humGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#06b6d4" stop-opacity="0.45"/>
+                <stop offset="70%" stop-color="#0284c7" stop-opacity="0.15"/>
+                <stop offset="100%" stop-color="#0284c7" stop-opacity="0.0"/>
+              </linearGradient>
+            </defs>
+            <path d="M 20,185 L \${pts.join(' L ')} L 780,185 Z" fill="url(#humGradient)"/>
+            <path d="M \${pts.join(' L ')}" fill="none" stroke="#06b6d4" stroke-width="2.5"/>
+            <line x1="\${cursorX}" y1="10" x2="\${cursorX}" y2="185" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+            <circle cx="\${cursorX}" cy="\${cursorY}" r="5.5" fill="#06b6d4" stroke="#000000" stroke-width="2"/>
+          </svg>
+          <div class="svg-touch-overlay">\${touchZones}</div>
+        </div>
+
+        <div class="timeline-labels-row">\${timelineLabels}</div>
+
+        <div class="graph-stats-grid">
+          <div class="stat-tile">
+            <div class="stat-name dimmed">MIN HUMIDITY</div>
+            <div class="stat-val bright">\${min}%</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">MAX HUMIDITY</div>
+            <div class="stat-val bright">\${max}%</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">24H AVERAGE</div>
+            <div class="stat-val text-cyan">\${avg}%</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">COMFORT STATUS</div>
+            <div class="stat-val bright">\${comfort}</div>
+          </div>
+        </div>
+      \`;
+    }
+
+    if (graphType === "wind") {
+      let maxGust = 0, sumAvg = 0;
+      hourly.forEach(h => {
+        const gust = Math.max(h.wind_avg || 0, h.wind_gust || 0);
+        if (gust > maxGust) maxGust = gust;
+        sumAvg += (h.wind_avg || 0);
+      });
+      const speedMult = isImperial ? 2.23694 : 3.6;
+      const speedUnit = isImperial ? "mph" : "km/h";
+      const maxGustVal = Math.max(8, Math.ceil(maxGust * speedMult));
+      const avgWindVal = Math.round((sumAvg / count) * speedMult);
+
+      const ptsAvg = hourly.map((h, i) => {
+        const spd = (h.wind_avg || 0) * speedMult;
+        const x = (i / (count - 1)) * 760 + 20;
+        const y = 180 - (spd / maxGustVal) * 155;
+        return \`\${x.toFixed(1)},\${y.toFixed(1)}\`;
+      });
+
+      const ptsGust = hourly.map((h, i) => {
+        const gst = (h.wind_gust || h.wind_avg || 0) * speedMult;
+        const x = (i / (count - 1)) * 760 + 20;
+        const y = 180 - (gst / maxGustVal) * 155;
+        return \`\${x.toFixed(1)},\${y.toFixed(1)}\`;
+      });
+
+      const activeSpeed = Math.round((activeHour.wind_avg || 0) * speedMult);
+      const activeGust = Math.round((activeHour.wind_gust || activeHour.wind_avg || 0) * speedMult);
+      const cursorX = ((activeIdx / (count - 1)) * 760 + 20).toFixed(1);
+      const cursorY = (180 - (activeSpeed / maxGustVal) * 155).toFixed(1);
+
+      return \`
+        <div class="graph-card-header">
+          <div class="graph-card-title-box">
+            <div class="graph-card-title text-sky">
+              <svg class="graph-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>
+              <span>Wind Velocity & Direction Profile</span>
+            </div>
+            <div class="graph-card-sub dimmed xsmall">24-hour wind velocity, peak gusts, and direction trajectory</div>
+          </div>
+          <div class="scrubber-badge">
+            <span class="scrubber-time dimmed">\${activeHour.hour_label || "Now"}</span>
+            <span class="scrubber-sep">|</span>
+            <span class="scrubber-val text-sky">\${activeSpeed} \${speedUnit}</span>
+            <span class="scrubber-secondary dimmed">Gust \${activeGust} \${speedUnit}</span>
+            <span class="scrubber-cond">
+              <svg class="wind-vector-glyph" style="transform: rotate(\${activeHour.wind_direction || 0}deg);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M12 19V5M5 12l7-7 7 7"/>
+              </svg>
+              <span>\${activeHour.wind_direction_cardinal || "N"}</span>
+            </span>
+          </div>
+        </div>
+
+        <div class="svg-graph-wrapper">
+          <div class="svg-grid-lines">
+            <div class="grid-line"><span>Peak: \${maxGustVal} \${speedUnit}</span></div>
+            <div class="grid-line"><span>Mid: \${Math.round(maxGustVal / 2)} \${speedUnit}</span></div>
+            <div class="grid-line"><span>Calm: 0 \${speedUnit}</span></div>
+          </div>
+          <svg class="telemetry-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="windGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#38bdf8" stop-opacity="0.3"/>
+                <stop offset="100%" stop-color="#0284c7" stop-opacity="0.0"/>
+              </linearGradient>
+            </defs>
+            <path d="M 20,185 L \${ptsGust.join(' L ')} L 780,185 Z" fill="url(#windGradient)"/>
+            <path d="M \${ptsGust.join(' L ')}" fill="none" stroke="#0284c7" stroke-width="1.5" stroke-dasharray="4 4"/>
+            <path d="M \${ptsAvg.join(' L ')}" fill="none" stroke="#38bdf8" stroke-width="2.5"/>
+            <line x1="\${cursorX}" y1="10" x2="\${cursorX}" y2="185" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+            <circle cx="\${cursorX}" cy="\${cursorY}" r="5.5" fill="#38bdf8" stroke="#000000" stroke-width="2"/>
+          </svg>
+          <div class="svg-touch-overlay">\${touchZones}</div>
+        </div>
+
+        <div class="timeline-labels-row">\${timelineLabels}</div>
+
+        <div class="graph-stats-grid">
+          <div class="stat-tile">
+            <div class="stat-name dimmed">AVG SPEED</div>
+            <div class="stat-val bright">\${avgWindVal} \${speedUnit}</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">PEAK GUST</div>
+            <div class="stat-val text-sky">\${Math.round(maxGust * speedMult)} \${speedUnit}</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">DIRECTION</div>
+            <div class="stat-val bright">\${activeHour.wind_direction_cardinal || "N"} (\${activeHour.wind_direction || 0}°)</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">AIR STATUS</div>
+            <div class="stat-val bright">\${activeSpeed < 4 ? "Light Air" : activeSpeed < 12 ? "Gentle Breeze" : "Breezy"}</div>
+          </div>
+        </div>
+      \`;
+    }
+
+    if (graphType === "uv") {
+      let maxUv = 0, daylight = 0;
+      hourly.forEach(h => {
+        const u = h.uv || 0;
+        if (u > maxUv) maxUv = u;
+        if (u > 0.5) daylight++;
+      });
+      const maxScale = Math.max(6, Math.ceil(maxUv + 1));
+      const activeUv = (activeHour.uv || 0).toFixed(1);
+      const risk = activeHour.uv > 7 ? "Very High" : activeHour.uv > 5 ? "High" : activeHour.uv > 2 ? "Moderate" : "Low";
+
+      const pts = hourly.map((h, i) => {
+        const u = h.uv || 0;
+        const x = (i / (count - 1)) * 760 + 20;
+        const y = 180 - (u / maxScale) * 155;
+        return \`\${x.toFixed(1)},\${y.toFixed(1)}\`;
+      });
+
+      const cursorX = ((activeIdx / (count - 1)) * 760 + 20).toFixed(1);
+      const cursorY = (180 - ((activeHour.uv || 0) / maxScale) * 155).toFixed(1);
+
+      return \`
+        <div class="graph-card-header">
+          <div class="graph-card-title-box">
+            <div class="graph-card-title text-orange">
+              <svg class="graph-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>
+              <span>Solar Radiation & UV Index Risk</span>
+            </div>
+            <div class="graph-card-sub dimmed xsmall">24-hour UV intensity spectrum & daytime solar exposure</div>
+          </div>
+          <div class="scrubber-badge">
+            <span class="scrubber-time dimmed">\${activeHour.hour_label || "Now"}</span>
+            <span class="scrubber-sep">|</span>
+            <span class="scrubber-val text-orange">UV \${activeUv}</span>
+            <span class="scrubber-secondary dimmed">\${risk} Risk</span>
+            <span class="scrubber-cond">\${condIcon} <span>\${activeHour.conditions || ""}</span></span>
+          </div>
+        </div>
+
+        <div class="svg-graph-wrapper">
+          <div class="svg-grid-lines">
+            <div class="grid-line"><span>Max Scale: UV \${maxScale}</span></div>
+            <div class="grid-line"><span>Moderate Threshold: UV 3</span></div>
+            <div class="grid-line"><span>Zero: UV 0</span></div>
+          </div>
+          <svg class="telemetry-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="uvGradient" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="#f97316" stop-opacity="0.5"/>
+                <stop offset="60%" stop-color="#fb923c" stop-opacity="0.2"/>
+                <stop offset="100%" stop-color="#f97316" stop-opacity="0.0"/>
+              </linearGradient>
+            </defs>
+            <path d="M 20,185 L \${pts.join(' L ')} L 780,185 Z" fill="url(#uvGradient)"/>
+            <path d="M \${pts.join(' L ')}" fill="none" stroke="#f97316" stroke-width="2.5"/>
+            <line x1="\${cursorX}" y1="10" x2="\${cursorX}" y2="185" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+            <circle cx="\${cursorX}" cy="\${cursorY}" r="5.5" fill="#f97316" stroke="#000000" stroke-width="2"/>
+          </svg>
+          <div class="svg-touch-overlay">\${touchZones}</div>
+        </div>
+
+        <div class="timeline-labels-row">\${timelineLabels}</div>
+
+        <div class="graph-stats-grid">
+          <div class="stat-tile">
+            <div class="stat-name dimmed">PEAK UV INDEX</div>
+            <div class="stat-val text-orange">UV \${maxUv.toFixed(1)}</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">DAYLIGHT HOURS</div>
+            <div class="stat-val bright">\${daylight} hrs</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">RISK LEVEL</div>
+            <div class="stat-val bright">\${risk}</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">PROTECTION</div>
+            <div class="stat-val bright">\${maxUv > 5 ? "Hat & Sunscreen" : maxUv > 2 ? "Sunglasses" : "No Protection Req."}</div>
+          </div>
+        </div>
+      \`;
+    }
+
+    if (graphType === "rain") {
+      let totalRain = 0, peakHourly = 0, maxProb = 0;
+      hourly.forEach(h => {
+        const r = h.precip_accum || 0;
+        totalRain += r;
+        if (r > peakHourly) peakHourly = r;
+        if ((h.precip_probability || 0) > maxProb) maxProb = h.precip_probability;
+      });
+
+      const rainMult = isImperial ? 0.0393701 : 1.0;
+      const rainUnit = isImperial ? "in" : "mm";
+      const totalRainVal = isImperial ? (totalRain * rainMult).toFixed(2) : totalRain.toFixed(1);
+      const peakRainVal = isImperial ? (peakHourly * rainMult).toFixed(2) : peakHourly.toFixed(1);
+      const activeRain = isImperial ? ((activeHour.precip_accum || 0) * rainMult).toFixed(2) : (activeHour.precip_accum || 0).toFixed(1);
+      const activeProb = activeHour.precip_probability || 0;
+
+      const maxBarRain = Math.max(0.1, peakHourly * rainMult * 1.3);
+      let rainBars = "";
+      hourly.forEach((h, i) => {
+        const x = (i / (count - 1)) * 760 + 20 - 8;
+        const val = (h.precip_accum || 0) * rainMult;
+        const barH = Math.max(val > 0 ? 4 : 0, (val / maxBarRain) * 140);
+        const y = 185 - barH;
+        rainBars += \`<rect x="\${x.toFixed(1)}" y="\${y.toFixed(1)}" width="16" height="\${barH.toFixed(1)}" rx="3" fill="#818cf8" opacity="\${i === activeIdx ? '0.95' : '0.55'}"/>\`;
+      });
+
+      const probPts = hourly.map((h, i) => {
+        const prob = h.precip_probability || 0;
+        const x = (i / (count - 1)) * 760 + 20;
+        const y = 180 - (prob / 100) * 150;
+        return \`\${x.toFixed(1)},\${y.toFixed(1)}\`;
+      });
+
+      const cursorX = ((activeIdx / (count - 1)) * 760 + 20).toFixed(1);
+
+      return \`
+        <div class="graph-card-header">
+          <div class="graph-card-title-box">
+            <div class="graph-card-title text-indigo">
+              <svg class="graph-title-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25" stroke="currentColor"/><line x1="8" y1="18" x2="7" y2="21" stroke="currentColor"/><line x1="12" y1="18" x2="11" y2="21" stroke="currentColor"/><line x1="16" y1="18" x2="15" y2="21" stroke="currentColor"/></svg>
+              <span>Precipitation Intensity & Probability</span>
+            </div>
+            <div class="graph-card-sub dimmed xsmall">24-hour rain accumulation and hourly chance of precipitation</div>
+          </div>
+          <div class="scrubber-badge">
+            <span class="scrubber-time dimmed">\${activeHour.hour_label || "Now"}</span>
+            <span class="scrubber-sep">|</span>
+            <span class="scrubber-val text-indigo">\${activeProb}% Rain</span>
+            <span class="scrubber-secondary dimmed">\${activeRain} \${rainUnit}</span>
+            <span class="scrubber-cond">\${condIcon} <span>\${activeHour.conditions || ""}</span></span>
+          </div>
+        </div>
+
+        <div class="svg-graph-wrapper">
+          <div class="svg-grid-lines">
+            <div class="grid-line"><span>100% Probability / Peak: \${peakRainVal} \${rainUnit}</span></div>
+            <div class="grid-line"><span>50% Chance of Rain</span></div>
+            <div class="grid-line"><span>0% Precip</span></div>
+          </div>
+          <svg class="telemetry-svg" viewBox="0 0 800 200" preserveAspectRatio="none">
+            \${rainBars}
+            <path d="M \${probPts.join(' L ')}" fill="none" stroke="#38bdf8" stroke-width="2" stroke-dasharray="3 3"/>
+            <line x1="\${cursorX}" y1="10" x2="\${cursorX}" y2="185" stroke="#ffffff" stroke-width="1.5" stroke-dasharray="3 3" opacity="0.6"/>
+          </svg>
+          <div class="svg-touch-overlay">\${touchZones}</div>
+        </div>
+
+        <div class="timeline-labels-row">\${timelineLabels}</div>
+
+        <div class="graph-stats-grid">
+          <div class="stat-tile">
+            <div class="stat-name dimmed">24H TOTAL RAIN</div>
+            <div class="stat-val text-indigo">\${totalRainVal} \${rainUnit}</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">PEAK HOURLY</div>
+            <div class="stat-val bright">\${peakRainVal} \${rainUnit}/h</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">MAX CHANCE</div>
+            <div class="stat-val bright">\${maxProb}%</div>
+          </div>
+          <div class="stat-tile">
+            <div class="stat-name dimmed">RAIN STATUS</div>
+            <div class="stat-val bright">\${totalRain > 0 ? "Precipitation Expected" : "No Rain Predicted"}</div>
+          </div>
+        </div>
+      \`;
+    }
+
+    return "";
   }
 });
 `;
@@ -558,36 +1181,41 @@ module.exports = NodeHelper.create({
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         forecastDaily = forecastData.forecast.daily.slice(0, 7).map((d, i) => {
           const date = new Date(d.day_start_local * 1000);
+          const high = d.air_temp_high ?? d.air_temperature_high ?? d.high_temp ?? d.temp_high ?? 20;
+          const low = d.air_temp_low ?? d.air_temperature_low ?? d.low_temp ?? d.temp_low ?? 10;
           return {
             day_name: i === 0 ? "Today" : i === 1 ? "Tomorrow" : days[date.getDay()],
             conditions: d.conditions || "Partly Cloudy",
-            air_temp_high: d.air_temp_high,
-            air_temp_low: d.air_temp_low,
+            air_temp_high: Number(high),
+            air_temp_low: Number(low),
             precip_probability: d.precip_probability || 0,
             wind_avg: d.wind_avg || 0
           };
         });
       }
 
-      // Extract hourly wind trends
+      // Extract hourly wind and telemetry trends
       let forecastHourly = [];
       if (forecastData?.forecast?.hourly) {
         forecastHourly = forecastData.forecast.hourly.slice(0, 24).map((h) => {
           const d = new Date(h.time * 1000);
           const hrs = d.getHours();
           const hourLabel = hrs === 0 ? "12 AM" : hrs === 12 ? "12 PM" : hrs > 12 ? \`\${hrs - 12} PM\` : \`\${hrs} AM\`;
+          const rawTemp = h.air_temperature ?? h.air_temp ?? h.temp ?? 20;
+          const rawFeels = h.feels_like ?? rawTemp;
           return {
             hour_label: hourLabel,
             conditions: h.conditions || "Clear",
-            air_temp: h.air_temp,
-            relative_humidity: h.relative_humidity || 50,
-            wind_avg: h.wind_avg,
-            wind_gust: h.wind_gust || h.wind_avg,
-            wind_direction: h.wind_direction,
-            wind_direction_cardinal: this.degreesToCardinal(h.wind_direction),
-            uv: h.uv || 0,
-            precip_accum: h.precip || h.precip_accum || 0,
-            precip_probability: h.precip_probability || 0
+            air_temp: Number(rawTemp),
+            feels_like: Number(rawFeels),
+            relative_humidity: Number(h.relative_humidity ?? 50),
+            wind_avg: Number(h.wind_avg ?? 0),
+            wind_gust: Number(h.wind_gust ?? h.wind_avg ?? 0),
+            wind_direction: Number(h.wind_direction ?? 0),
+            wind_direction_cardinal: this.degreesToCardinal(h.wind_direction ?? 0),
+            uv: Number(h.uv ?? 0),
+            precip_accum: Number(h.precip ?? h.precip_accum ?? 0),
+            precip_probability: Number(h.precip_probability ?? 0)
           };
         });
       }
@@ -940,69 +1568,401 @@ export function getMmmTempestWxCss(): string {
   margin-top: 2px !important;
 }
 
-/* HOURLY TRENDS SECTION */
-.hourly-scroll-container {
-  overflow-x: auto !important;
-  -webkit-overflow-scrolling: touch !important;
+/* 24-HOUR TELEMETRY TRENDS SECTION */
+.telemetry-section-container {
   width: 100% !important;
-  padding-bottom: 10px !important;
   box-sizing: border-box !important;
+  margin-top: 8px !important;
 }
 
-.hourly-grid {
-  display: flex !important;
-  gap: 8px !important;
-  min-width: max-content !important;
-  box-sizing: border-box !important;
-}
-
-.hourly-col {
-  flex: 0 0 74px !important;
-  width: 74px !important;
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 8px !important;
-  padding: 10px 4px !important;
-  text-align: center !important;
+.telemetry-wrapper {
   display: flex !important;
   flex-direction: column !important;
-  align-items: center !important;
-  justify-content: space-between !important;
-  min-height: 160px !important;
+  gap: 12px !important;
+  width: 100% !important;
   box-sizing: border-box !important;
 }
 
-.hourly-time {
+.telemetry-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.telemetry-title-box {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.telemetry-title-row {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.pulse-indicator {
+  width: 8px !important;
+  height: 8px !important;
+  border-radius: 50% !important;
+  background-color: #10b981 !important;
+  box-shadow: 0 0 8px #10b981 !important;
+  display: inline-block !important;
+}
+
+.telemetry-title {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase !important;
+  color: #f1f5f9 !important;
+}
+
+.telemetry-sub {
   font-size: 10px !important;
+  color: #94a3b8 !important;
+  margin-top: 2px !important;
+}
+
+.telemetry-nav-controls {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+}
+
+.telemetry-arrow-btn {
+  width: 28px !important;
+  height: 28px !important;
+  border-radius: 6px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.15) !important;
+  color: #fff !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  cursor: pointer !important;
+  padding: 0 !important;
+  transition: all 0.2s ease !important;
+}
+
+.telemetry-arrow-btn:hover,
+.telemetry-arrow-btn:active {
+  background: rgba(255, 255, 255, 0.18) !important;
+  border-color: rgba(255, 255, 255, 0.3) !important;
+}
+
+.telemetry-arrow-btn svg {
+  width: 14px !important;
+  height: 14px !important;
+}
+
+.telemetry-page-counter {
+  font-size: 11px !important;
+  font-family: monospace !important;
+  color: #94a3b8 !important;
+}
+
+/* 5 GRAPH SELECTOR TABS */
+.graph-tabs-bar {
+  display: grid !important;
+  grid-template-columns: repeat(5, 1fr) !important;
+  gap: 8px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.graph-tab-btn {
+  display: flex !important;
+  flex-direction: column !important;
+  align-items: flex-start !important;
+  justify-content: space-between !important;
+  padding: 8px 10px !important;
+  min-height: 64px !important;
+  border-radius: 8px !important;
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.1) !important;
+  cursor: pointer !important;
+  text-align: left !important;
+  transition: all 0.2s ease !important;
+  box-sizing: border-box !important;
+}
+
+.graph-tab-btn:hover {
+  background: rgba(255, 255, 255, 0.08) !important;
+  border-color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.tab-icon-wrap {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+}
+
+.tab-icon {
+  width: 16px !important;
+  height: 16px !important;
+  display: block !important;
+}
+
+.tab-label {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  color: #cbd5e1 !important;
+  margin: 4px 0 2px 0 !important;
+}
+
+.tab-pill {
+  font-size: 11px !important;
+  font-weight: 700 !important;
+  color: #fff !important;
+}
+
+/* ACTIVE TAB THEMES */
+.amber-tab.active {
+  background: rgba(245, 158, 11, 0.12) !important;
+  border-color: rgba(245, 158, 11, 0.5) !important;
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.15) !important;
+}
+.amber-tab .tab-icon { stroke: #f59e0b !important; }
+
+.cyan-tab.active {
+  background: rgba(6, 182, 212, 0.12) !important;
+  border-color: rgba(6, 182, 212, 0.5) !important;
+  box-shadow: 0 0 12px rgba(6, 182, 212, 0.15) !important;
+}
+.cyan-tab .tab-icon { stroke: #06b6d4 !important; }
+
+.sky-tab.active {
+  background: rgba(56, 189, 248, 0.12) !important;
+  border-color: rgba(56, 189, 248, 0.5) !important;
+  box-shadow: 0 0 12px rgba(56, 189, 248, 0.15) !important;
+}
+.sky-tab .tab-icon { stroke: #38bdf8 !important; }
+
+.orange-tab.active {
+  background: rgba(249, 115, 22, 0.12) !important;
+  border-color: rgba(249, 115, 22, 0.5) !important;
+  box-shadow: 0 0 12px rgba(249, 115, 22, 0.15) !important;
+}
+.orange-tab .tab-icon { stroke: #f97316 !important; }
+
+.indigo-tab.active {
+  background: rgba(129, 140, 248, 0.12) !important;
+  border-color: rgba(129, 140, 248, 0.5) !important;
+  box-shadow: 0 0 12px rgba(129, 140, 248, 0.15) !important;
+}
+.indigo-tab .tab-icon { stroke: #818cf8 !important; }
+
+/* ACTIVE GRAPH CARD */
+.active-graph-card {
+  background: rgba(0, 0, 0, 0.45) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 12px !important;
+  padding: 14px !important;
+  display: flex !important;
+  flex-direction: column !important;
+  gap: 10px !important;
+  box-sizing: border-box !important;
+}
+
+.graph-card-header {
+  display: flex !important;
+  align-items: center !important;
+  justify-content: space-between !important;
+}
+
+.graph-card-title-box {
+  display: flex !important;
+  flex-direction: column !important;
+}
+
+.graph-card-title {
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 1px !important;
+  display: flex !important;
+  align-items: center !important;
+  gap: 6px !important;
+}
+
+.graph-title-icon {
+  width: 16px !important;
+  height: 16px !important;
+}
+
+.graph-card-sub {
+  font-size: 10px !important;
+  color: #94a3b8 !important;
+  margin-top: 2px !important;
+}
+
+.scrubber-badge {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  background: rgba(255, 255, 255, 0.06) !important;
+  border: 1px solid rgba(255, 255, 255, 0.14) !important;
+  border-radius: 20px !important;
+  padding: 4px 10px !important;
+  font-size: 11px !important;
+}
+
+.scrubber-time {
+  font-weight: 600 !important;
+  color: #94a3b8 !important;
+}
+
+.scrubber-sep {
+  color: rgba(255, 255, 255, 0.2) !important;
+}
+
+.scrubber-val {
+  font-weight: 700 !important;
+  font-size: 13px !important;
+}
+
+.scrubber-secondary {
+  color: #cbd5e1 !important;
+  font-size: 11px !important;
+}
+
+.scrubber-cond {
+  display: flex !important;
+  align-items: center !important;
+  gap: 4px !important;
+  font-size: 11px !important;
+  color: #e2e8f0 !important;
+}
+
+.scrubber-cond svg {
+  width: 16px !important;
+  height: 16px !important;
+  display: block !important;
+}
+
+/* SVG GRAPH & TOUCH SCRUBBER */
+.svg-graph-wrapper {
+  position: relative !important;
+  width: 100% !important;
+  height: 175px !important;
+  background: rgba(255, 255, 255, 0.02) !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
+  box-sizing: border-box !important;
+}
+
+.svg-grid-lines {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  flex-direction: column !important;
+  justify-content: space-between !important;
+  padding: 8px 12px !important;
+  pointer-events: none !important;
+  box-sizing: border-box !important;
+}
+
+.grid-line {
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.08) !important;
+  display: flex !important;
+  justify-content: flex-end !important;
+  font-size: 9px !important;
+  color: #64748b !important;
+  padding-bottom: 2px !important;
+}
+
+.telemetry-svg {
+  width: 100% !important;
+  height: 100% !important;
+  display: block !important;
+}
+
+.svg-touch-overlay {
+  position: absolute !important;
+  inset: 0 !important;
+  display: flex !important;
+  width: 100% !important;
+  height: 100% !important;
+  z-index: 10 !important;
+}
+
+.scrubber-touch-col {
+  flex: 1 !important;
+  height: 100% !important;
+  cursor: pointer !important;
+  background: transparent !important;
+}
+
+.scrubber-touch-col:hover {
+  background: rgba(255, 255, 255, 0.04) !important;
+}
+
+/* TIMELINE HOUR LABELS */
+.timeline-labels-row {
+  display: flex !important;
+  justify-content: space-between !important;
+  width: 100% !important;
+  padding: 0 10px !important;
+  box-sizing: border-box !important;
+}
+
+.timeline-hour-col {
+  font-size: 9px !important;
+  color: #64748b !important;
+  text-align: center !important;
+  flex: 1 !important;
+}
+
+.timeline-hour-col.active-hour {
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+/* STATS GRID */
+.graph-stats-grid {
+  display: grid !important;
+  grid-template-columns: repeat(4, 1fr) !important;
+  gap: 8px !important;
+  margin-top: 4px !important;
+  width: 100% !important;
+  box-sizing: border-box !important;
+}
+
+.stat-tile {
+  background: rgba(255, 255, 255, 0.04) !important;
+  border: 1px solid rgba(255, 255, 255, 0.07) !important;
+  border-radius: 8px !important;
+  padding: 8px 10px !important;
+  text-align: center !important;
+  box-sizing: border-box !important;
+}
+
+.stat-name {
+  font-size: 9px !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
   color: #94a3b8 !important;
   margin-bottom: 2px !important;
 }
 
-.hourly-temp {
+.stat-val {
   font-size: 13px !important;
-  font-weight: 600 !important;
-  margin-bottom: 2px !important;
-}
-
-.hourly-wind {
-  display: flex !important;
-  align-items: center !important;
-  justify-content: center !important;
-  gap: 3px !important;
-  font-size: 11px !important;
-  margin: 3px 0 !important;
+  font-weight: 700 !important;
 }
 
 .wind-vector-glyph {
   width: 14px !important;
   height: 14px !important;
-  stroke: #94a3b8 !important;
+  stroke: currentColor !important;
 }
 
 /* COLOR UTILITIES */
-.cyan-text { color: #38bdf8 !important; }
-.orange-text { color: #fb923c !important; }
-.indigo-text { color: #818cf8 !important; }
+.text-amber { color: #f59e0b !important; }
+.text-cyan { color: #06b6d4 !important; }
+.text-sky { color: #38bdf8 !important; }
+.text-orange { color: #f97316 !important; }
+.text-indigo { color: #818cf8 !important; }
 .xxsmall { font-size: 9px !important; }
 .mt-4 { margin-top: 16px !important; }
 .ml-2 { margin-left: 8px !important; }

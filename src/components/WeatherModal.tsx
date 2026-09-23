@@ -77,9 +77,15 @@ export const WeatherModal: React.FC<WeatherModalProps> = ({
     let min = Infinity;
     let max = -Infinity;
     forecastDaily.forEach((d) => {
-      if (d.air_temp_low < min) min = d.air_temp_low;
-      if (d.air_temp_high > max) max = d.air_temp_high;
+      const low = Number(d.air_temp_low ?? (d as any).air_temperature_low ?? (d as any).low_temp ?? 10);
+      const high = Number(d.air_temp_high ?? (d as any).air_temperature_high ?? (d as any).high_temp ?? 20);
+      if (!isNaN(low) && low < min) min = low;
+      if (!isNaN(high) && high > max) max = high;
     });
+    if (min === Infinity || max === -Infinity) {
+      min = 0;
+      max = 30;
+    }
     return { globalMinTemp: min, globalMaxTemp: max };
   }, [forecastDaily]);
 

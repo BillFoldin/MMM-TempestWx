@@ -157,14 +157,16 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
     daily = forecastData.forecast.daily.slice(0, 7).map((d: any, idx: number) => {
       const date = new Date(d.day_start_local * 1000);
       const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+      const highTemp = d.air_temp_high ?? d.air_temperature_high ?? d.high_temp ?? d.temp_high ?? 20;
+      const lowTemp = d.air_temp_low ?? d.air_temperature_low ?? d.low_temp ?? d.temp_low ?? 10;
       return {
         day_start_local: d.day_start_local,
         day_name: idx === 0 ? 'Today' : idx === 1 ? 'Tomorrow' : days[date.getDay()],
         date_label: `${date.getMonth() + 1}/${date.getDate()}`,
         conditions: d.conditions || 'Partly Cloudy',
         icon: mapWeatherFlowIcon(d.icon),
-        air_temp_high: d.air_temp_high,
-        air_temp_low: d.air_temp_low,
+        air_temp_high: Number(highTemp),
+        air_temp_low: Number(lowTemp),
         precip_probability: d.precip_probability ?? 0,
         wind_avg: d.wind_avg ?? 3,
         wind_direction_cardinal: d.wind_direction_cardinal || 'W',
@@ -181,21 +183,24 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
       const d = new Date(h.time * 1000);
       const hours = d.getHours();
       const hourLabel = hours === 0 ? '12 AM' : hours === 12 ? '12 PM' : hours > 12 ? `${hours - 12} PM` : `${hours} AM`;
+      // WeatherFlow better_forecast API uses 'air_temperature' for hourly objects
+      const rawHourTemp = h.air_temperature ?? h.air_temp ?? h.temp ?? 20;
+      const rawFeelsLike = h.feels_like ?? rawHourTemp;
       return {
         time: h.time,
         hour_label: hourLabel,
         conditions: h.conditions || 'Clear',
         icon: mapWeatherFlowIcon(h.icon),
-        air_temp: h.air_temp,
-        feels_like: h.feels_like ?? h.air_temp,
-        relative_humidity: h.relative_humidity ?? 50,
-        wind_avg: h.wind_avg,
-        wind_gust: h.wind_gust ?? h.wind_avg + 2,
-        wind_direction: h.wind_direction,
-        wind_direction_cardinal: h.wind_direction_cardinal || degreesToCardinal(h.wind_direction),
-        uv: h.uv ?? 0,
-        precip_accum: h.precip ?? h.precip_accum ?? 0,
-        precip_probability: h.precip_probability ?? 0,
+        air_temp: Number(rawHourTemp),
+        feels_like: Number(rawFeelsLike),
+        relative_humidity: Number(h.relative_humidity ?? 50),
+        wind_avg: Number(h.wind_avg ?? 0),
+        wind_gust: Number(h.wind_gust ?? h.wind_avg ?? 0),
+        wind_direction: Number(h.wind_direction ?? 0),
+        wind_direction_cardinal: h.wind_direction_cardinal || degreesToCardinal(h.wind_direction ?? 0),
+        uv: Number(h.uv ?? 0),
+        precip_accum: Number(h.precip ?? h.precip_accum ?? 0),
+        precip_probability: Number(h.precip_probability ?? 0),
       };
     });
   } else {

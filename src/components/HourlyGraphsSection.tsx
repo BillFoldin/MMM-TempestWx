@@ -20,6 +20,21 @@ import {
 
 export type HourlyGraphType = 'temperature' | 'humidity' | 'wind' | 'uv' | 'rain';
 
+// Resilient helper to safely read temperatures regardless of whether the API returns air_temp, air_temperature, or temp
+export function extractHourTemp(h: any): number {
+  if (!h) return 20;
+  const v = h.air_temperature ?? h.air_temp ?? h.temp;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return isNaN(n) ? 20 : n;
+}
+
+export function extractHourFeels(h: any): number {
+  if (!h) return 20;
+  const v = h.feels_like ?? h.air_temperature ?? h.air_temp ?? h.temp;
+  const n = typeof v === 'number' ? v : parseFloat(v);
+  return isNaN(n) ? extractHourTemp(h) : n;
+}
+
 interface GraphTabDef {
   id: HourlyGraphType;
   title: string;
@@ -125,9 +140,14 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
     let min = Infinity;
     let max = -Infinity;
     safeHourly.forEach((h) => {
-      if (h.air_temp < min) min = h.air_temp;
-      if (h.air_temp > max) max = h.air_temp;
+      const t = extractHourTemp(h);
+      if (t < min) min = t;
+      if (t > max) max = t;
     });
+    if (min === Infinity || max === -Infinity) {
+      min = 15;
+      max = 25;
+    }
     const span = Math.max(4, max - min);
     return {
       minTemp: min,
@@ -215,7 +235,7 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
   const getTabQuickGlance = (tabId: HourlyGraphType): string => {
     switch (tabId) {
       case 'temperature':
-        return formatTemp(currentHour.air_temp, config.units);
+        return formatTemp(extractHourTemp(currentHour), config.units);
       case 'humidity':
         return `${currentHour.relative_humidity ?? 50}%`;
       case 'wind': {
@@ -484,8 +504,10 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
   onUserActivity,
 }) => {
   const activeHour = hourlyData[activeHourlyIndex] || hourlyData[0];
-  const activeTempFormatted = formatTemp(activeHour.air_temp, config.units);
-  const feelsLikeFormatted = formatTemp(activeHour.feels_like ?? activeHour.air_temp, config.units);
+  const activeTemp = extractHourTemp(activeHour);
+  const activeFeels = extractHourFeels(activeHour);
+  const activeTempFormatted = formatTemp(activeTemp, config.units);
+  const feelsLikeFormatted = formatTemp(activeFeels, config.units);
   const rangeSpan = Math.max(1, tempYMax - tempYMin);
 
   return (
@@ -544,8 +566,9 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
           {/* Temperature Area & Line */}
           {(() => {
             const pts = hourlyData.map((h, i) => {
+              const t = extractHourTemp(h);
               const x = (i / Math.max(1, hourlyData.length - 1)) * 800;
-              const y = 185 - ((h.air_temp - tempYMin) / rangeSpan) * 165;
+              const y = 185 - ((t - tempYMin) / rangeSpan) * 165;
               return `${x},${y}`;
             });
             const areaD = `M 0,190 L ${pts.join(' L ')} L 800,190 Z`;
@@ -561,7 +584,7 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
           {/* Active Hover Cursor */}
           {(() => {
             const x = (activeHourlyIndex / Math.max(1, hourlyData.length - 1)) * 800;
-            const y = 185 - ((activeHour.air_temp - tempYMin) / rangeSpan) * 165;
+            const y = 185 - ((activeTemp - tempYMin) / rangeSpan) * 165;
             return (
               <g>
                 <line x1={x} y1={10} x2={x} y2={190} stroke="#ffffff" strokeWidth="1" strokeDasharray="3 3" opacity="0.6" />
@@ -605,7 +628,7 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
                 <WeatherConditionIcon icon={h.icon} size={13} />
               </div>
               <span className="text-[9px] font-mono text-neutral-300 font-medium">
-                {formatTemp(h.air_temp, config.units)}
+                {formatTemp(extractHourTemp(h), config.units)}
               </span>
             </div>
           ))}
@@ -654,7 +677,7 @@ const HumidityGraphCard: React.FC<HumidityGraphCardProps> = ({
   const activeHour = hourlyData[activeHourlyIndex] || hourlyData[0];
   const humVal = activeHour.relative_humidity ?? 50;
   const comfort = getHumidityComfort(humVal);
-  const dewPointC = activeHour.air_temp - (100 - humVal) / 5;
+  const dewPointC = extractHourTemp(activeHour) - (100 - humVal) / 5;
 
   return (
     <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-4">
