@@ -134,17 +134,9 @@ mv MMM-TempestWx/MMM-TempestWx/* MMM-TempestWx/
 rmdir MMM-TempestWx/MMM-TempestWx
 ```
 
-### Error: "require is not defined in ES module scope"
+### Zero Dependencies & No package.json Conflicts
 
-MagicMirror modules run as standard CommonJS modules. If your `package.json` has `"type": "module"`, either delete that line or set:
-
-```json
-{
-  "type": "commonjs"
-}
-```
-
-Because this module has zero runtime dependencies, you can also delete `package.json` entirely from the module directory.
+MagicMirror modules run as standard CommonJS modules. This module uses pure Node.js built-in APIs (`https`) and has **zero third-party npm dependencies**. No `package.json` file is needed or included in the module directory, preventing any ESM/CommonJS conflicts (`"require is not defined in ES module scope"`).
 
 ---
 
@@ -155,7 +147,6 @@ MMM-TempestWx/
 ├── MMM-TempestWx.js        # MagicMirror front-end module definition & in-place DOM updates
 ├── node_helper.js          # Built-in Node.js https proxy for Tempest REST API
 ├── MMM-TempestWx.css       # Two-way mirror high-contrast styling & modal layouts
-├── package.json            # CommonJS package manifest
 ├── README.md               # Documentation & setup guide
 ├── src/                    # Web simulator & React development workspace
 │   ├── components/         # React simulator components & SVG icon library

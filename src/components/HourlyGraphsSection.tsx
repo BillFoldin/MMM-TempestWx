@@ -93,6 +93,65 @@ const GRAPH_TABS: GraphTabDef[] = [
   },
 ];
 
+interface InteractiveScrubberOverlayProps {
+  count: number;
+  onSelect: (index: number) => void;
+  onUserActivity: () => void;
+}
+
+export const InteractiveScrubberOverlay: React.FC<InteractiveScrubberOverlayProps> = ({
+  count,
+  onSelect,
+  onUserActivity,
+}) => {
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  const calculateIndex = (clientX: number) => {
+    if (!containerRef.current || count <= 0) return;
+    const rect = containerRef.current.getBoundingClientRect();
+    if (rect.width <= 0) return;
+    const offsetX = Math.max(0, Math.min(rect.width, clientX - rect.left));
+    const fraction = offsetX / rect.width;
+    const index = Math.min(count - 1, Math.max(0, Math.floor(fraction * count)));
+    onSelect(index);
+    onUserActivity();
+  };
+
+  return (
+    <div
+      ref={containerRef}
+      className="absolute inset-0 cursor-crosshair select-none z-20"
+      style={{ touchAction: 'none' }}
+      onPointerDown={(e) => {
+        try {
+          e.currentTarget.setPointerCapture(e.pointerId);
+        } catch (_) {}
+        calculateIndex(e.clientX);
+      }}
+      onPointerMove={(e) => {
+        if (e.buttons > 0 || e.pointerType === 'mouse') {
+          calculateIndex(e.clientX);
+        }
+      }}
+      onPointerUp={(e) => {
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch (_) {}
+      }}
+      onTouchStart={(e) => {
+        if (e.touches.length > 0) {
+          calculateIndex(e.touches[0].clientX);
+        }
+      }}
+      onTouchMove={(e) => {
+        if (e.touches.length > 0) {
+          calculateIndex(e.touches[0].clientX);
+        }
+      }}
+    />
+  );
+};
+
 interface HourlyGraphsSectionProps {
   hourlyData: HourlyForecast[];
   activeHourlyIndex: number;
@@ -253,7 +312,7 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
     }
   };
 
-  // Scroll carousel to selected tab
+  // Scroll carousel to selected tab (Instant on touch devices)
   const scrollToGraph = (tabId: HourlyGraphType) => {
     setActiveTab(tabId);
     onUserActivity();
@@ -264,16 +323,15 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
     isProgrammaticScroll.current = true;
     const targetElement = carouselRef.current.children[index] as HTMLElement;
     if (targetElement) {
-      targetElement.scrollIntoView({
-        behavior: 'smooth',
-        block: 'nearest',
-        inline: 'center',
+      carouselRef.current.scrollTo({
+        left: targetElement.offsetLeft,
+        behavior: 'auto',
       });
     }
 
     setTimeout(() => {
       isProgrammaticScroll.current = false;
-    }, 600);
+    }, 50);
   };
 
   // Handle scroll listener on carousel to sync active tab
@@ -301,27 +359,28 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
   };
 
   return (
-    <div className="bg-neutral-900/40 border border-neutral-800/80 rounded-2xl p-4 sm:p-5 shadow-xl">
+    <div className="bg-black/90 border border-neutral-800/80 rounded-2xl p-4 sm:p-5 shadow-xl">
       {/* Top Header: Navigation Bar & Controls */}
       <div className="flex flex-col md:flex-row md:items-center justify-between gap-3 mb-4 pb-3 border-b border-neutral-800/80">
         <div>
           <div className="flex items-center gap-2">
             <span className="w-2 h-2 rounded-full bg-sky-400 animate-pulse" />
-            <h3 className="text-sm font-semibold tracking-wider uppercase text-neutral-200 font-sans">
+            <h3 className="text-xs sm:text-sm font-semibold tracking-widest uppercase text-neutral-200 font-sans">
               24-Hour Local Telemetry Trends
             </h3>
           </div>
-          <p className="text-xs text-neutral-400 mt-0.5">
+          <p className="text-xs text-neutral-400 font-sans mt-0.5">
             Swipe or select graphs: Temperature, Humidity, Wind Speed, UV Index, & Rain
           </p>
         </div>
 
         {/* Previous / Next Arrow Controls */}
-        <div className="flex items-center gap-1.5 self-end md:self-auto">
+        <div className="flex items-center gap-2 self-end md:self-auto">
           <button
             type="button"
+            onPointerDown={handlePrevTab}
             onClick={handlePrevTab}
-            className="w-8 h-8 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 active:scale-95 text-neutral-300 hover:text-white flex items-center justify-center transition-all"
+            className="w-9 h-9 rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 active:scale-95 text-neutral-300 hover:text-white flex items-center justify-center transition-all touch-manipulation cursor-pointer"
             aria-label="Previous hourly graph"
             title="Previous hourly graph"
           >
@@ -329,13 +388,14 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
               <polyline points="15 18 9 12 15 6" />
             </svg>
           </button>
-          <span className="text-xs font-mono text-neutral-400 px-1">
+          <span className="text-xs font-sans font-medium text-neutral-400 px-1">
             {currentTabIndex + 1} / {GRAPH_TABS.length}
           </span>
           <button
             type="button"
+            onPointerDown={handleNextTab}
             onClick={handleNextTab}
-            className="w-8 h-8 rounded-lg bg-neutral-800/80 hover:bg-neutral-700 active:scale-95 text-neutral-300 hover:text-white flex items-center justify-center transition-all"
+            className="w-9 h-9 rounded-xl bg-neutral-900 border border-neutral-800 hover:bg-neutral-800 active:scale-95 text-neutral-300 hover:text-white flex items-center justify-center transition-all touch-manipulation cursor-pointer"
             aria-label="Next hourly graph"
             title="Next hourly graph"
           >
@@ -357,18 +417,19 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
             <button
               key={tab.id}
               type="button"
+              onPointerDown={() => scrollToGraph(tab.id)}
               onClick={() => scrollToGraph(tab.id)}
-              className={`flex items-center gap-2 px-3.5 py-2 rounded-xl text-xs font-medium transition-all whitespace-nowrap border shrink-0 touch-manipulation ${
+              className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-xs sm:text-sm font-sans font-medium transition-all whitespace-nowrap border shrink-0 touch-manipulation cursor-pointer ${
                 isActive
-                  ? 'bg-neutral-800 text-white border-neutral-600 shadow-md ring-1 ring-neutral-500/40'
-                  : 'bg-neutral-900/50 hover:bg-neutral-800/60 text-neutral-400 hover:text-neutral-200 border-neutral-800/80'
+                  ? 'bg-neutral-900 text-white border-neutral-400 shadow-lg ring-1 ring-white/20'
+                  : 'bg-black/80 hover:bg-neutral-900 text-neutral-400 hover:text-neutral-200 border-neutral-800/90'
               }`}
             >
               <span className={`flex items-center justify-center ${isActive ? tab.colorClass : 'text-neutral-500'}`}>
-                <IconComponent size={15} />
+                <IconComponent size={16} />
               </span>
-              <span className="font-sans font-medium">{tab.title}</span>
-              <span className="text-[11px] font-mono px-1.5 py-0.5 rounded bg-black/40 border border-white/5 text-neutral-300 ml-0.5">
+              <span>{tab.title}</span>
+              <span className="text-xs font-sans font-semibold px-2 py-0.5 rounded bg-neutral-800/80 border border-white/5 text-neutral-200 ml-0.5 tabular-nums">
                 {quickValue}
               </span>
             </button>
@@ -380,7 +441,7 @@ export const HourlyGraphsSection: React.FC<HourlyGraphsSectionProps> = ({
       <div
         ref={carouselRef}
         onScroll={handleScroll}
-        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none rounded-xl gap-4 scroll-smooth"
+        className="flex overflow-x-auto snap-x snap-mandatory scrollbar-none rounded-xl gap-4"
         style={{ scrollSnapType: 'x mandatory' }}
       >
         {/* GRAPH 1: Temperature */}
@@ -511,29 +572,29 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
   const rangeSpan = Math.max(1, tempYMax - tempYMin);
 
   return (
-    <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-4">
+    <div className="bg-neutral-950/80 border border-neutral-800/80 rounded-xl p-4 sm:p-5">
       {/* Subheader & Active Scrubber */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-neutral-800/60">
         <div>
           <div className="flex items-center gap-2 text-amber-400">
-            <ModernThermometerIcon size={16} />
-            <span className="text-xs font-semibold uppercase tracking-wider font-sans">
+            <ModernThermometerIcon size={18} />
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider font-sans">
               Hourly Air Temperature & Thermal Trends
             </span>
           </div>
-          <p className="text-[11px] text-neutral-400 mt-0.5">
+          <p className="text-xs text-neutral-400 mt-0.5 font-sans">
             24-hour diurnal thermal curve, ambient temp, and real-feel index
           </p>
         </div>
 
         {/* Scrubber Readout Badge */}
-        <div className="flex items-center gap-2.5 bg-neutral-900/90 px-3 py-1.5 rounded-lg border border-neutral-800 font-mono text-xs">
-          <span className="text-neutral-400">{activeHour.hour_label}</span>
+        <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700/80 px-3.5 py-1.5 rounded-xl font-sans text-xs sm:text-sm shadow-md">
+          <span className="text-neutral-300 font-semibold">{activeHour.hour_label}</span>
           <span className="text-neutral-600">|</span>
-          <span className="text-amber-300 font-semibold text-sm">{activeTempFormatted}</span>
-          <span className="text-neutral-400 text-[11px]">Feels {feelsLikeFormatted}</span>
-          <span className="text-neutral-400 flex items-center gap-1 text-[11px] font-sans">
-            <WeatherConditionIcon icon={activeHour.icon} condition={activeHour.conditions} size={14} />
+          <span className="text-amber-400 font-bold text-base sm:text-lg tabular-nums">{activeTempFormatted}</span>
+          <span className="text-neutral-300">Feels {feelsLikeFormatted}</span>
+          <span className="text-neutral-200 flex items-center gap-1.5 font-medium">
+            <WeatherConditionIcon icon={activeHour.icon} condition={activeHour.conditions} size={16} />
             {activeHour.conditions}
           </span>
         </div>
@@ -542,7 +603,7 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
       {/* SVG Chart */}
       <div className="relative w-full h-44 sm:h-52 select-none touch-none">
         {/* Horizontal reference grid lines */}
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-25 text-[10px] font-mono text-neutral-400">
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30 text-xs font-sans text-neutral-400">
           <div className="border-b border-neutral-700 w-full pb-0.5">
             Max: {formatTemp(maxTemp, config.units)}
           </div>
@@ -594,27 +655,12 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
           })()}
         </svg>
 
-        {/* Touch zones */}
-        <div className="absolute inset-0 flex">
-          {hourlyData.map((_, i) => (
-            <div
-              key={i}
-              onMouseEnter={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onTouchMove={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onClick={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              className="flex-1 h-full cursor-crosshair"
-            />
-          ))}
-        </div>
+        {/* Zero-latency interactive scrubber overlay */}
+        <InteractiveScrubberOverlay
+          count={hourlyData.length}
+          onSelect={onSelectHour}
+          onUserActivity={onUserActivity}
+        />
       </div>
 
       {/* Hour ticks with Condition Icons */}
@@ -623,11 +669,11 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
           .filter((_, i) => i % (hourlyData.length > 12 ? 2 : 1) === 0)
           .map((h, idx) => (
             <div key={idx} className="flex flex-col items-center">
-              <span className="text-[10px] text-neutral-400 font-mono mb-1">{h.hour_label}</span>
-              <div className="w-5 h-5 flex items-center justify-center text-neutral-300">
-                <WeatherConditionIcon icon={h.icon} size={13} />
+              <span className="text-xs text-neutral-400 font-sans font-medium mb-1">{h.hour_label}</span>
+              <div className="w-6 h-6 flex items-center justify-center text-neutral-200">
+                <WeatherConditionIcon icon={h.icon} size={16} />
               </div>
-              <span className="text-[9px] font-mono text-neutral-300 font-medium">
+              <span className="text-xs font-sans text-neutral-200 font-semibold tabular-nums mt-0.5">
                 {formatTemp(extractHourTemp(h), config.units)}
               </span>
             </div>
@@ -635,15 +681,15 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
       </div>
 
       {/* Stats footer bar */}
-      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400 font-mono">
+      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs sm:text-sm text-neutral-400 font-sans">
         <div>
-          24h Low: <span className="text-white">{formatTemp(minTemp, config.units)}</span>
+          24h Low: <span className="text-white font-medium">{formatTemp(minTemp, config.units)}</span>
         </div>
         <div>
-          24h High: <span className="text-white">{formatTemp(maxTemp, config.units)}</span>
+          24h High: <span className="text-white font-medium">{formatTemp(maxTemp, config.units)}</span>
         </div>
         <div>
-          Diurnal Swing: <span className="text-white">{(maxTemp - minTemp).toFixed(1)}°</span>
+          Diurnal Swing: <span className="text-white font-medium">{(maxTemp - minTemp).toFixed(1)}°</span>
         </div>
       </div>
     </div>
@@ -680,35 +726,35 @@ const HumidityGraphCard: React.FC<HumidityGraphCardProps> = ({
   const dewPointC = extractHourTemp(activeHour) - (100 - humVal) / 5;
 
   return (
-    <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-4">
+    <div className="bg-neutral-950/80 border border-neutral-800/80 rounded-xl p-4 sm:p-5">
       {/* Subheader & Active Scrubber */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-neutral-800/60">
         <div>
           <div className="flex items-center gap-2 text-cyan-400">
-            <ModernHumidityIcon size={16} />
-            <span className="text-xs font-semibold uppercase tracking-wider font-sans">
+            <ModernHumidityIcon size={18} />
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider font-sans">
               Hourly Relative Humidity & Saturation
             </span>
           </div>
-          <p className="text-[11px] text-neutral-400 mt-0.5">
+          <p className="text-xs text-neutral-400 mt-0.5 font-sans">
             24-hour atmospheric water vapor concentration, dew point, and human comfort zone
           </p>
         </div>
 
         {/* Scrubber Readout Badge */}
-        <div className="flex items-center gap-2.5 bg-neutral-900/90 px-3 py-1.5 rounded-lg border border-neutral-800 font-mono text-xs">
-          <span className="text-neutral-400">{activeHour.hour_label}</span>
+        <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700/80 px-3.5 py-1.5 rounded-xl font-sans text-xs sm:text-sm shadow-md">
+          <span className="text-neutral-300 font-semibold">{activeHour.hour_label}</span>
           <span className="text-neutral-600">|</span>
-          <span className="text-cyan-300 font-semibold text-sm">{humVal}%</span>
-          <span className={`text-[11px] font-sans font-medium ${comfort.color}`}>{comfort.label}</span>
-          <span className="text-neutral-400 text-[11px]">Dew {formatTemp(dewPointC, config.units)}</span>
+          <span className="text-cyan-300 font-bold text-base sm:text-lg tabular-nums">{humVal}%</span>
+          <span className={`text-xs font-sans font-semibold ${comfort.color}`}>{comfort.label}</span>
+          <span className="text-neutral-300 text-xs">Dew {formatTemp(dewPointC, config.units)}</span>
         </div>
       </div>
 
       {/* SVG Chart */}
       <div className="relative w-full h-44 sm:h-52 select-none touch-none">
         {/* Horizontal reference lines: 100%, 60% comfort top, 35% comfort bottom, 0% */}
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-25 text-[10px] font-mono text-neutral-400">
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30 text-xs font-sans text-neutral-400">
           <div className="border-b border-neutral-700 w-full pb-0.5">100% Saturation</div>
           <div className="border-b border-cyan-500/50 w-full pb-0.5 text-cyan-400">
             60% (Comfort Cap)
@@ -761,27 +807,12 @@ const HumidityGraphCard: React.FC<HumidityGraphCardProps> = ({
           })()}
         </svg>
 
-        {/* Touch zones */}
-        <div className="absolute inset-0 flex">
-          {hourlyData.map((_, i) => (
-            <div
-              key={i}
-              onMouseEnter={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onTouchMove={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onClick={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              className="flex-1 h-full cursor-crosshair"
-            />
-          ))}
-        </div>
+        {/* Zero-latency interactive scrubber overlay */}
+        <InteractiveScrubberOverlay
+          count={hourlyData.length}
+          onSelect={onSelectHour}
+          onUserActivity={onUserActivity}
+        />
       </div>
 
       {/* Hour ticks with Humidity levels */}
@@ -790,11 +821,11 @@ const HumidityGraphCard: React.FC<HumidityGraphCardProps> = ({
           .filter((_, i) => i % (hourlyData.length > 12 ? 2 : 1) === 0)
           .map((h, idx) => (
             <div key={idx} className="flex flex-col items-center">
-              <span className="text-[10px] text-neutral-400 font-mono mb-1">{h.hour_label}</span>
-              <div className="w-5 h-5 flex items-center justify-center text-cyan-400">
-                <ModernHumidityIcon size={12} />
+              <span className="text-xs text-neutral-400 font-sans font-medium mb-1">{h.hour_label}</span>
+              <div className="w-6 h-6 flex items-center justify-center text-cyan-400">
+                <ModernHumidityIcon size={16} />
               </div>
-              <span className="text-[9px] font-mono text-cyan-300 font-medium">
+              <span className="text-xs font-sans text-cyan-300 font-semibold tabular-nums mt-0.5">
                 {h.relative_humidity ?? 50}%
               </span>
             </div>
@@ -802,15 +833,15 @@ const HumidityGraphCard: React.FC<HumidityGraphCardProps> = ({
       </div>
 
       {/* Stats footer bar */}
-      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400 font-mono">
+      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs sm:text-sm text-neutral-400 font-sans">
         <div>
-          Min Humidity: <span className="text-white">{minHumidity}%</span>
+          Min Humidity: <span className="text-white font-medium">{minHumidity}%</span>
         </div>
         <div>
-          Max Humidity: <span className="text-white">{maxHumidity}%</span>
+          Max Humidity: <span className="text-white font-medium">{maxHumidity}%</span>
         </div>
         <div>
-          24h Average: <span className="text-white">{avgHumidity}%</span>
+          24h Average: <span className="text-white font-medium">{avgHumidity}%</span>
         </div>
       </div>
     </div>
@@ -848,31 +879,31 @@ const WindSpeedGraphCard: React.FC<WindSpeedGraphCardProps> = ({
   const peakGustFormatted = formatWindSpeed(peakGustInHourly, config.units);
 
   return (
-    <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-4">
+    <div className="bg-neutral-950/80 border border-neutral-800/80 rounded-xl p-4 sm:p-5">
       {/* Subheader & Active Scrubber */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-4 pb-2 border-b border-neutral-800/60">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-neutral-800/60">
         <div>
           <div className="flex items-center gap-2 text-sky-400">
-            <ModernWindIcon size={16} />
-            <span className="text-xs font-semibold uppercase tracking-wider font-sans">
+            <ModernWindIcon size={18} />
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider font-sans">
               Hourly Wind Speed Trends & Directional Vectors
             </span>
           </div>
-          <p className="text-[11px] text-neutral-400 mt-0.5">
+          <p className="text-xs text-neutral-400 mt-0.5 font-sans">
             Next 24 hours: Ultrasonic sustained velocity, peak gusts, and compass vectors
           </p>
         </div>
 
         {/* Scrubber Readout Badge */}
-        <div className="flex items-center gap-3 bg-neutral-900/90 px-3 py-1.5 rounded-lg border border-neutral-800 font-mono text-xs">
-          <span className="text-neutral-400">{currentHoveredHour.hour_label}</span>
+        <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700/80 px-3.5 py-1.5 rounded-xl font-sans text-xs sm:text-sm shadow-md">
+          <span className="text-neutral-300 font-semibold">{currentHoveredHour.hour_label}</span>
           <span className="text-neutral-600">|</span>
-          <span className="text-white font-semibold">
-            Avg: {activeWindFormatted.value} {activeWindFormatted.unit}
+          <span className="text-sky-300 font-bold text-base sm:text-lg tabular-nums">
+            {activeWindFormatted.value} {activeWindFormatted.unit}
           </span>
-          <span className="text-orange-400 font-medium">Gust: {activeGustFormatted.value}</span>
-          <span className="text-neutral-400 flex items-center gap-1">
-            <ModernWindVectorIcon degrees={currentHoveredHour.wind_direction} size={12} />
+          <span className="text-amber-400 font-semibold">Gust: {activeGustFormatted.value}</span>
+          <span className="text-neutral-300 flex items-center gap-1 font-medium">
+            <ModernWindVectorIcon degrees={currentHoveredHour.wind_direction} size={15} />
             {currentHoveredHour.wind_direction_cardinal} ({currentHoveredHour.wind_direction}°)
           </span>
         </div>
@@ -881,7 +912,7 @@ const WindSpeedGraphCard: React.FC<WindSpeedGraphCardProps> = ({
       {/* SVG Chart */}
       <div className="relative w-full h-44 sm:h-52 select-none touch-none">
         {/* Background Grid Lines */}
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-25 text-[10px] font-mono text-neutral-400">
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30 text-xs font-sans text-neutral-400">
           <div className="border-b border-neutral-700 w-full pb-0.5">
             {Math.round(maxWindInHourly)} {config.units === 'imperial' ? 'mph' : 'km/h'}
           </div>
@@ -954,27 +985,12 @@ const WindSpeedGraphCard: React.FC<WindSpeedGraphCardProps> = ({
           })()}
         </svg>
 
-        {/* Touch interaction zones */}
-        <div className="absolute inset-0 flex">
-          {hourlyData.map((_, i) => (
-            <div
-              key={i}
-              onMouseEnter={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onTouchMove={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onClick={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              className="flex-1 h-full cursor-crosshair"
-            />
-          ))}
-        </div>
+        {/* Zero-latency interactive scrubber overlay */}
+        <InteractiveScrubberOverlay
+          count={hourlyData.length}
+          onSelect={onSelectHour}
+          onUserActivity={onUserActivity}
+        />
       </div>
 
       {/* Directional Wind Vector Arrows & Hour Ticks Row */}
@@ -983,25 +999,25 @@ const WindSpeedGraphCard: React.FC<WindSpeedGraphCardProps> = ({
           .filter((_, i) => i % (hourlyData.length > 12 ? 2 : 1) === 0)
           .map((h, idx) => (
             <div key={idx} className="flex flex-col items-center">
-              <span className="text-[10px] text-neutral-400 font-mono mb-1">{h.hour_label}</span>
-              <div className="w-5 h-5 flex items-center justify-center text-neutral-300">
-                <ModernWindVectorIcon degrees={h.wind_direction} size={13} />
+              <span className="text-xs text-neutral-400 font-sans font-medium mb-1">{h.hour_label}</span>
+              <div className="w-6 h-6 flex items-center justify-center text-neutral-200">
+                <ModernWindVectorIcon degrees={h.wind_direction} size={16} />
               </div>
-              <span className="text-[9px] font-mono text-neutral-400">{h.wind_direction_cardinal}</span>
+              <span className="text-xs font-sans text-neutral-300 font-semibold mt-0.5">{h.wind_direction_cardinal}</span>
             </div>
           ))}
       </div>
 
       {/* Stats footer bar */}
-      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400 font-mono">
+      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs sm:text-sm text-neutral-400 font-sans">
         <div>
-          Avg Wind: <span className="text-white">{avgWindFormatted.value} {avgWindFormatted.unit}</span>
+          Avg Wind: <span className="text-white font-medium">{avgWindFormatted.value} {avgWindFormatted.unit}</span>
         </div>
         <div>
-          Peak Gust: <span className="text-orange-400 font-medium">{peakGustFormatted.value} {peakGustFormatted.unit}</span>
+          Peak Gust: <span className="text-amber-400 font-medium">{peakGustFormatted.value} {peakGustFormatted.unit}</span>
         </div>
         <div>
-          Legend: <span className="text-sky-400">― Avg</span> <span className="text-orange-400 ml-2">-- Gust</span>
+          Legend: <span className="text-sky-400 font-medium">― Avg</span> <span className="text-amber-400 font-medium ml-2">-- Gust</span>
         </div>
       </div>
     </div>
@@ -1037,30 +1053,30 @@ const UvIndexGraphCard: React.FC<UvIndexGraphCardProps> = ({
   const maxScale = Math.max(11, Math.ceil(peakUvInHourly + 1));
 
   return (
-    <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-4">
+    <div className="bg-neutral-950/80 border border-neutral-800/80 rounded-xl p-4 sm:p-5">
       {/* Subheader & Active Scrubber */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-neutral-800/60">
         <div>
-          <div className="flex items-center gap-2 text-orange-400">
-            <ModernSunUvIcon size={16} />
-            <span className="text-xs font-semibold uppercase tracking-wider font-sans">
+          <div className="flex items-center gap-2 text-amber-400">
+            <ModernSunUvIcon size={18} />
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider font-sans">
               Hourly Solar UV Index & Exposure Radiation
             </span>
           </div>
-          <p className="text-[11px] text-neutral-400 mt-0.5">
+          <p className="text-xs text-neutral-400 mt-0.5 font-sans">
             24-hour ultraviolet radiation profile, danger tiering, and daylight protection
           </p>
         </div>
 
         {/* Scrubber Readout Badge */}
-        <div className="flex items-center gap-2.5 bg-neutral-900/90 px-3 py-1.5 rounded-lg border border-neutral-800 font-mono text-xs">
-          <span className="text-neutral-400">{activeHour.hour_label}</span>
+        <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700/80 px-3.5 py-1.5 rounded-xl font-sans text-xs sm:text-sm shadow-md">
+          <span className="text-neutral-300 font-semibold">{activeHour.hour_label}</span>
           <span className="text-neutral-600">|</span>
-          <span className={`font-semibold text-sm ${uvCat.color}`}>UV {uvVal.toFixed(1)}</span>
-          <span className={`text-[11px] font-sans font-medium uppercase ${uvCat.color}`}>
+          <span className={`font-bold text-base sm:text-lg tabular-nums ${uvCat.color}`}>UV {uvVal.toFixed(1)}</span>
+          <span className={`text-xs font-sans font-semibold uppercase ${uvCat.color}`}>
             {uvCat.label}
           </span>
-          <span className="text-neutral-400 text-[11px] max-w-[160px] truncate">
+          <span className="text-neutral-300 text-xs max-w-[180px] truncate">
             {uvCat.advice}
           </span>
         </div>
@@ -1069,17 +1085,17 @@ const UvIndexGraphCard: React.FC<UvIndexGraphCardProps> = ({
       {/* SVG Chart */}
       <div className="relative w-full h-44 sm:h-52 select-none touch-none">
         {/* Horizontal reference lines for WHO UV tiers: 11 (Extreme), 8 (Very High), 6 (High), 3 (Moderate), 0 */}
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-25 text-[10px] font-mono text-neutral-400">
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30 text-xs font-sans text-neutral-400">
           <div className="border-b border-purple-500/60 w-full pb-0.5 text-purple-300">
             11+ Extreme Risk
           </div>
           <div className="border-b border-rose-500/60 w-full pb-0.5 text-rose-300">
             8 Very High Risk
           </div>
-          <div className="border-b border-orange-500/60 w-full pb-0.5 text-orange-300">
+          <div className="border-b border-amber-500/60 w-full pb-0.5 text-amber-300">
             6 High Risk
           </div>
-          <div className="border-b border-amber-500/60 w-full pb-0.5 text-amber-300">
+          <div className="border-b border-yellow-500/60 w-full pb-0.5 text-yellow-300">
             3 Moderate Risk
           </div>
           <div className="border-b border-neutral-700 w-full pb-0.5">0 Low / Night</div>
@@ -1125,27 +1141,12 @@ const UvIndexGraphCard: React.FC<UvIndexGraphCardProps> = ({
           })()}
         </svg>
 
-        {/* Touch zones */}
-        <div className="absolute inset-0 flex">
-          {hourlyData.map((_, i) => (
-            <div
-              key={i}
-              onMouseEnter={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onTouchMove={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onClick={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              className="flex-1 h-full cursor-crosshair"
-            />
-          ))}
-        </div>
+        {/* Zero-latency interactive scrubber overlay */}
+        <InteractiveScrubberOverlay
+          count={hourlyData.length}
+          onSelect={onSelectHour}
+          onUserActivity={onUserActivity}
+        />
       </div>
 
       {/* Hour ticks with UV values */}
@@ -1154,11 +1155,11 @@ const UvIndexGraphCard: React.FC<UvIndexGraphCardProps> = ({
           .filter((_, i) => i % (hourlyData.length > 12 ? 2 : 1) === 0)
           .map((h, idx) => (
             <div key={idx} className="flex flex-col items-center">
-              <span className="text-[10px] text-neutral-400 font-mono mb-1">{h.hour_label}</span>
-              <div className="w-5 h-5 flex items-center justify-center text-orange-400">
-                <ModernSunUvIcon size={12} />
+              <span className="text-xs text-neutral-400 font-sans font-medium mb-1">{h.hour_label}</span>
+              <div className="w-6 h-6 flex items-center justify-center text-amber-400">
+                <ModernSunUvIcon size={16} />
               </div>
-              <span className="text-[9px] font-mono text-orange-300 font-medium">
+              <span className="text-xs font-sans text-amber-300 font-semibold tabular-nums mt-0.5">
                 {(h.uv ?? 0).toFixed(1)}
               </span>
             </div>
@@ -1166,15 +1167,15 @@ const UvIndexGraphCard: React.FC<UvIndexGraphCardProps> = ({
       </div>
 
       {/* Stats footer bar */}
-      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400 font-mono">
+      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs sm:text-sm text-neutral-400 font-sans">
         <div>
           Peak UV: <span className={`font-semibold ${peakCat.color}`}>UV {peakUvInHourly.toFixed(1)} ({peakCat.label})</span>
         </div>
         <div>
-          Daylight Window: <span className="text-white">{daylightHoursCount} hours</span>
+          Daylight Window: <span className="text-white font-medium">{daylightHoursCount} hours</span>
         </div>
         <div>
-          Protection: <span className="text-white">{peakCat.advice}</span>
+          Protection: <span className="text-white font-medium">{peakCat.advice}</span>
         </div>
       </div>
     </div>
@@ -1217,32 +1218,32 @@ const RainAccumulationGraphCard: React.FC<RainAccumulationGraphCardProps> = ({
   const maxAccumScale = Math.max(config.units === 'imperial' ? 0.3 : 8, peakHourlyRain * 1.5, totalRain24h * 0.8);
 
   return (
-    <div className="bg-neutral-950/60 border border-neutral-800/80 rounded-xl p-4">
+    <div className="bg-neutral-950/80 border border-neutral-800/80 rounded-xl p-4 sm:p-5">
       {/* Subheader & Active Scrubber */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 pb-2 border-b border-neutral-800/60">
         <div>
           <div className="flex items-center gap-2 text-indigo-400">
-            <ModernRainCloudIcon size={16} />
-            <span className="text-xs font-semibold uppercase tracking-wider font-sans">
+            <ModernRainCloudIcon size={18} />
+            <span className="text-xs sm:text-sm font-semibold uppercase tracking-wider font-sans">
               Hourly Rain Accumulation & Probability
             </span>
           </div>
-          <p className="text-[11px] text-neutral-400 mt-0.5">
+          <p className="text-xs text-neutral-400 mt-0.5 font-sans">
             24-hour liquid precipitation volume, cumulative buildup, and chance of rain
           </p>
         </div>
 
         {/* Scrubber Readout Badge */}
-        <div className="flex items-center gap-2.5 bg-neutral-900/90 px-3 py-1.5 rounded-lg border border-neutral-800 font-mono text-xs">
-          <span className="text-neutral-400">{activeHour.hour_label}</span>
+        <div className="flex items-center gap-3 bg-neutral-900 border border-neutral-700/80 px-3.5 py-1.5 rounded-xl font-sans text-xs sm:text-sm shadow-md">
+          <span className="text-neutral-300 font-semibold">{activeHour.hour_label}</span>
           <span className="text-neutral-600">|</span>
-          <span className="text-indigo-300 font-semibold text-sm">
+          <span className="text-indigo-300 font-bold text-base sm:text-lg tabular-nums">
             {hourlyRainFormatted.value} {hourlyRainFormatted.unit}
           </span>
-          <span className="text-sky-400 font-medium">
+          <span className="text-sky-400 font-semibold">
             {activeHour.precip_probability ?? 0}% rain
           </span>
-          <span className="text-neutral-400 text-[11px]">
+          <span className="text-neutral-300 text-xs">
             Cumul: {cumFormatted.value} {cumFormatted.unit}
           </span>
         </div>
@@ -1251,7 +1252,7 @@ const RainAccumulationGraphCard: React.FC<RainAccumulationGraphCardProps> = ({
       {/* SVG Chart */}
       <div className="relative w-full h-44 sm:h-52 select-none touch-none">
         {/* Reference Grid */}
-        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-25 text-[10px] font-mono text-neutral-400">
+        <div className="absolute inset-0 flex flex-col justify-between pointer-events-none opacity-30 text-xs font-sans text-neutral-400">
           <div className="border-b border-neutral-700 w-full pb-0.5">
             {formatPrecipitation(maxAccumScale, config.units).value} {config.units === 'imperial' ? 'in' : 'mm'}
           </div>
@@ -1325,27 +1326,12 @@ const RainAccumulationGraphCard: React.FC<RainAccumulationGraphCardProps> = ({
           })()}
         </svg>
 
-        {/* Touch zones */}
-        <div className="absolute inset-0 flex">
-          {hourlyData.map((_, i) => (
-            <div
-              key={i}
-              onMouseEnter={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onTouchMove={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              onClick={() => {
-                onSelectHour(i);
-                onUserActivity();
-              }}
-              className="flex-1 h-full cursor-crosshair"
-            />
-          ))}
-        </div>
+        {/* Zero-latency interactive scrubber overlay */}
+        <InteractiveScrubberOverlay
+          count={hourlyData.length}
+          onSelect={onSelectHour}
+          onUserActivity={onUserActivity}
+        />
       </div>
 
       {/* Hour ticks with Rain Probability */}
@@ -1354,11 +1340,11 @@ const RainAccumulationGraphCard: React.FC<RainAccumulationGraphCardProps> = ({
           .filter((_, i) => i % (hourlyData.length > 12 ? 2 : 1) === 0)
           .map((h, idx) => (
             <div key={idx} className="flex flex-col items-center">
-              <span className="text-[10px] text-neutral-400 font-mono mb-1">{h.hour_label}</span>
-              <div className="w-5 h-5 flex items-center justify-center text-indigo-400">
-                <ModernRainCloudIcon size={12} />
+              <span className="text-xs text-neutral-400 font-sans font-medium mb-1">{h.hour_label}</span>
+              <div className="w-6 h-6 flex items-center justify-center text-indigo-400">
+                <ModernRainCloudIcon size={16} />
               </div>
-              <span className="text-[9px] font-mono text-sky-400 font-medium">
+              <span className="text-xs font-sans text-sky-400 font-semibold tabular-nums mt-0.5">
                 {h.precip_probability ?? 0}%
               </span>
             </div>
@@ -1366,15 +1352,15 @@ const RainAccumulationGraphCard: React.FC<RainAccumulationGraphCardProps> = ({
       </div>
 
       {/* Stats footer bar */}
-      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs text-neutral-400 font-mono">
+      <div className="mt-3 pt-2 border-t border-neutral-800/60 flex items-center justify-between text-xs sm:text-sm text-neutral-400 font-sans">
         <div>
-          24h Total: <span className="text-white font-semibold">{totalRainFormatted.value} {totalRainFormatted.unit}</span>
+          24h Total: <span className="text-white font-medium">{totalRainFormatted.value} {totalRainFormatted.unit}</span>
         </div>
         <div>
           Max Rain Chance: <span className="text-sky-400 font-medium">{maxPrecipProb}%</span>
         </div>
         <div>
-          Legend: <span className="text-indigo-400">■ Hourly</span> <span className="text-indigo-300 ml-2">-- Cumulative</span>
+          Legend: <span className="text-indigo-400 font-medium">■ Hourly</span> <span className="text-indigo-300 font-medium ml-2">-- Cumulative</span>
         </div>
       </div>
     </div>

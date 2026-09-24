@@ -1,4 +1,4 @@
-import { getMmmTempestWxJs, getNodeHelperJs, getMmmTempestWxCss, getPackageJson, getReadmeMd } from '../src/utils/moduleSourceCode.ts';
+import { getMmmTempestWxJs, getNodeHelperJs, getMmmTempestWxCss, getReadmeMd } from '../src/utils/moduleSourceCode.ts';
 import { ModuleConfig } from '../src/types/tempest.ts';
 import fs from 'fs';
 import path from 'path';
@@ -27,7 +27,7 @@ fs.writeFileSync(path.join(rootDir, 'node_helper.js'), getNodeHelperJs(), 'utf8'
 fs.writeFileSync(path.join(rootDir, 'MMM-TempestWx.css'), getMmmTempestWxCss(), 'utf8');
 fs.writeFileSync(path.join(rootDir, 'README.md'), getReadmeMd(config), 'utf8');
 
-// Also populate module/ directory
+// Also populate module/ directory (zero npm dependencies, no package.json needed)
 const moduleDir = path.join(rootDir, 'module');
 if (!fs.existsSync(moduleDir)) {
   fs.mkdirSync(moduleDir, { recursive: true });
@@ -36,7 +36,12 @@ if (!fs.existsSync(moduleDir)) {
 fs.writeFileSync(path.join(moduleDir, 'MMM-TempestWx.js'), getMmmTempestWxJs(), 'utf8');
 fs.writeFileSync(path.join(moduleDir, 'node_helper.js'), getNodeHelperJs(), 'utf8');
 fs.writeFileSync(path.join(moduleDir, 'MMM-TempestWx.css'), getMmmTempestWxCss(), 'utf8');
-fs.writeFileSync(path.join(moduleDir, 'package.json'), getPackageJson(), 'utf8');
 fs.writeFileSync(path.join(moduleDir, 'README.md'), getReadmeMd(config), 'utf8');
 
-console.log('[sync-module-files] Successfully synchronized standalone MagicMirror module files to disk.');
+// Ensure module/package.json is deleted so MagicMirror has zero module/CommonJS conflicts
+const modulePkg = path.join(moduleDir, 'package.json');
+if (fs.existsSync(modulePkg)) {
+  fs.unlinkSync(modulePkg);
+}
+
+console.log('[sync-module-files] Successfully synchronized standalone MagicMirror module files to disk (zero dependencies, no package.json).');

@@ -13,7 +13,7 @@ interface ModuleCodeViewerProps {
   config: ModuleConfig;
 }
 
-type FileTab = 'js' | 'helper' | 'css' | 'config' | 'package' | 'readme';
+type FileTab = 'js' | 'helper' | 'css' | 'config' | 'readme';
 
 export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) => {
   const [activeTab, setActiveTab] = useState<FileTab>('js');
@@ -24,7 +24,6 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
   const mmmJs = getMmmTempestWxJs();
   const helperJs = getNodeHelperJs();
   const css = getMmmTempestWxCss();
-  const pkg = getPackageJson();
   const readme = getReadmeMd(config);
 
   const configSnippet = `// Add this to your MagicMirror config/config.js inside modules: [...]
@@ -57,9 +56,6 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
   } else if (activeTab === 'config') {
     currentCode = configSnippet;
     currentFilename = 'config.js snippet';
-  } else if (activeTab === 'package') {
-    currentCode = pkg;
-    currentFilename = 'package.json';
   } else if (activeTab === 'readme') {
     currentCode = readme;
     currentFilename = 'README.md';
@@ -84,7 +80,6 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
         folder.file('MMM-TempestWx.js', mmmJs);
         folder.file('node_helper.js', helperJs);
         folder.file('MMM-TempestWx.css', css);
-        folder.file('package.json', pkg);
         folder.file('README.md', readme);
       }
 
@@ -160,16 +155,6 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
           >
             README.md
           </button>
-          <button
-            onClick={() => setActiveTab('package')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-mono font-medium transition-colors whitespace-nowrap ${
-              activeTab === 'package'
-                ? 'bg-neutral-800 text-white shadow-sm'
-                : 'text-neutral-400 hover:text-neutral-200 hover:bg-neutral-900'
-            }`}
-          >
-            package.json
-          </button>
         </div>
 
         {/* Action buttons */}
@@ -242,7 +227,7 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
                       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── <strong className="text-white">MMM-TempestWx.js</strong> <em>(directly here)</em><br />
                       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── node_helper.js<br />
                       &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;├── MMM-TempestWx.css<br />
-                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── package.json
+                      &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└── README.md <span className="text-emerald-400 font-sans text-[10px]">(zero npm dependencies, no package.json needed)</span>
                     </div>
                   </div>
                   <div className="p-2.5 rounded bg-black/60 border border-neutral-800">
@@ -299,17 +284,13 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-amber-900/40">
-                  <div className="font-semibold text-rose-300 mb-1">
-                    Fix for: <span className="font-mono text-[11px] bg-black/40 px-1 py-0.5 rounded text-rose-200">"require is not defined in ES module scope" / package.json contains "type": "module"</span>
+                  <div className="font-semibold text-emerald-300 mb-1 flex items-center justify-between">
+                    <span>Zero Dependencies / No package.json</span>
+                    <span className="text-[10px] bg-emerald-950/80 text-emerald-400 border border-emerald-800 px-2 py-0.5 rounded font-mono">Clean CommonJS</span>
                   </div>
                   <p className="text-neutral-300 text-[11px] leading-relaxed">
-                    MagicMirror uses standard CommonJS (<code className="text-amber-200">require</code>). If your <code className="text-amber-200">MMM-TempestWx/package.json</code> contains <code className="text-rose-300">"type": "module"</code>, Node blocks it.
+                    This module uses pure Node.js built-in APIs (<code className="text-amber-200 font-mono">https</code>) with zero third-party npm packages. <strong>No <code className="text-white">package.json</code> is needed or included</strong> in the module, eliminating any CommonJS vs ES module conflicts (<code className="text-rose-300">"require is not defined in ES module scope"</code>) in MagicMirror².
                   </p>
-                  <div className="p-2.5 rounded bg-black/60 border border-neutral-800 mt-2 font-mono text-[11px] text-sky-300">
-                    <span className="text-emerald-400 font-sans font-medium block mb-1">Instant 5-Second Fix:</span>
-                    Option A: Edit <code className="text-white">modules/MMM-TempestWx/package.json</code> and change <code className="text-rose-400">"type": "module"</code> to <code className="text-emerald-400">"type": "commonjs"</code>.<br />
-                    Option B (Simplest): Simply <strong>delete <code className="text-white">package.json</code></strong> inside <code className="text-white">modules/MMM-TempestWx/</code>. This module uses Node's built-in APIs with zero npm packages!
-                  </div>
                 </div>
 
                 <div className="mt-3 pt-3 border-t border-amber-900/40">

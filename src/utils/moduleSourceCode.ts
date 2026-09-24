@@ -516,7 +516,13 @@ Module.register("MMM-TempestWx", {
     \`;
 
     const closeBtn = modalBox.querySelector("#tempest-modal-close-btn");
-    if (closeBtn) closeBtn.addEventListener("click", () => this.closeTouchModal());
+    if (closeBtn) {
+      closeBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        this.closeTouchModal();
+      });
+      closeBtn.addEventListener("click", () => this.closeTouchModal());
+    }
 
     // Render interactive telemetry trends graphs
     const telemetryContainer = modalBox.querySelector("#tempest-telemetry-container");
@@ -631,37 +637,84 @@ Module.register("MMM-TempestWx", {
 
     const tabBtns = container.querySelectorAll(".graph-tab-btn");
     tabBtns.forEach(btn => {
-      btn.addEventListener("click", () => {
+      const handleTab = (e) => {
+        if (e && e.type === "pointerdown") e.preventDefault();
         this.activeGraphTab = btn.getAttribute("data-tab");
         this.modalCountdown = this.config.autoCloseModalSeconds || 30;
         this.renderTelemetrySection(container, hourly, isImperial);
-      });
+      };
+      btn.addEventListener("pointerdown", handleTab);
+      btn.addEventListener("click", handleTab);
     });
 
     const prevBtn = container.querySelector("#telemetry-prev-btn");
     if (prevBtn) {
-      prevBtn.addEventListener("click", () => {
+      const handlePrev = (e) => {
+        if (e && e.type === "pointerdown") e.preventDefault();
         const nextIdx = (currentTabIdx - 1 + tabs.length) % tabs.length;
         this.activeGraphTab = tabs[nextIdx].id;
         this.modalCountdown = this.config.autoCloseModalSeconds || 30;
         this.renderTelemetrySection(container, hourly, isImperial);
-      });
+      };
+      prevBtn.addEventListener("pointerdown", handlePrev);
+      prevBtn.addEventListener("click", handlePrev);
     }
 
     const nextBtn = container.querySelector("#telemetry-next-btn");
     if (nextBtn) {
-      nextBtn.addEventListener("click", () => {
+      const handleNext = (e) => {
+        if (e && e.type === "pointerdown") e.preventDefault();
         const nextIdx = (currentTabIdx + 1) % tabs.length;
         this.activeGraphTab = tabs[nextIdx].id;
         this.modalCountdown = this.config.autoCloseModalSeconds || 30;
         this.renderTelemetrySection(container, hourly, isImperial);
-      });
+      };
+      nextBtn.addEventListener("pointerdown", handleNext);
+      nextBtn.addEventListener("click", handleNext);
     }
 
     this.attachScrubberEvents(container, hourly, isImperial);
   },
 
   attachScrubberEvents: function (container, hourly, isImperial) {
+    const overlay = container.querySelector(".svg-touch-overlay");
+    if (overlay) {
+      const calculateAndSetIndex = (clientX) => {
+        const rect = overlay.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const offset = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const fraction = offset / rect.width;
+        const newIdx = Math.min(hourly.length - 1, Math.max(0, Math.floor(fraction * hourly.length)));
+        if (this.activeHourlyIndex !== newIdx) {
+          this.activeHourlyIndex = newIdx;
+          this.modalCountdown = this.config.autoCloseModalSeconds || 30;
+          const graphCard = container.querySelector("#active-graph-card-content");
+          if (graphCard) {
+            graphCard.innerHTML = this.generateGraphCardHtml(this.activeGraphTab, hourly, isImperial, newIdx);
+            this.attachScrubberEvents(container, hourly, isImperial);
+          }
+        }
+      };
+
+      overlay.addEventListener("pointerdown", (e) => {
+        try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
+        calculateAndSetIndex(e.clientX);
+      });
+      overlay.addEventListener("pointermove", (e) => {
+        if (e.buttons > 0 || e.pointerType === "mouse") {
+          calculateAndSetIndex(e.clientX);
+        }
+      });
+      overlay.addEventListener("pointerup", (e) => {
+        try { overlay.releasePointerCapture(e.pointerId); } catch (_) {}
+      });
+      overlay.addEventListener("touchmove", (e) => {
+        if (e.touches.length > 0) {
+          calculateAndSetIndex(e.touches[0].clientX);
+        }
+      }, { passive: true });
+    }
+
     const touchCols = container.querySelectorAll(".scrubber-touch-col");
     touchCols.forEach(col => {
       const idx = parseInt(col.getAttribute("data-index"), 10);
@@ -1760,11 +1813,12 @@ export function getMmmTempestWxCss(): string {
   background: #27272a !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   color: #fff !important;
-  padding: 6px 14px !important;
-  border-radius: 8px !important;
-  font-size: 12px !important;
+  padding: 8px 18px !important;
+  border-radius: 10px !important;
+  font-size: 14px !important;
   cursor: pointer !important;
-  font-weight: 500 !important;
+  font-weight: 600 !important;
+  touch-action: manipulation !important;
   transition: background-color 0.2s ease !important;
 }
 
@@ -1774,83 +1828,86 @@ export function getMmmTempestWxCss(): string {
 }
 
 .modal-section-title {
-  font-size: 11px !important;
-  letter-spacing: 1.5px !important;
+  font-size: 13px !important;
+  letter-spacing: 2px !important;
   text-transform: uppercase !important;
-  color: #94a3b8 !important;
-  margin-bottom: 10px !important;
-  font-weight: 600 !important;
+  color: #cbd5e1 !important;
+  margin-bottom: 12px !important;
+  font-weight: 700 !important;
 }
 
 /* 7-DAY EXTENDED FORECAST CARDS */
 .forecast-grid {
   display: grid !important;
   grid-template-columns: repeat(7, 1fr) !important;
-  gap: 10px !important;
+  gap: 12px !important;
   margin-bottom: 24px !important;
   width: 100% !important;
   box-sizing: border-box !important;
 }
 
 .forecast-day-card {
-  background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.08) !important;
-  border-radius: 10px !important;
-  padding: 12px 6px !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  border: 1px solid rgba(255, 255, 255, 0.12) !important;
+  border-radius: 12px !important;
+  padding: 14px 8px !important;
   text-align: center !important;
   display: flex !important;
   flex-direction: column !important;
   align-items: center !important;
   justify-content: space-between !important;
-  min-height: 145px !important;
+  min-height: 165px !important;
+  touch-action: manipulation !important;
   box-sizing: border-box !important;
 }
 
 .forecast-day-card .day-title {
-  font-size: 13px !important;
-  font-weight: 600 !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
   color: #fff !important;
-  margin-bottom: 4px !important;
+  margin-bottom: 6px !important;
 }
 
 .day-icon,
 .hourly-icon {
-  width: 36px !important;
-  height: 36px !important;
+  width: 40px !important;
+  height: 40px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  margin: 4px 0 !important;
+  margin: 6px 0 !important;
 }
 
 .day-icon svg,
 .hourly-icon svg {
-  width: 28px !important;
-  height: 28px !important;
+  width: 32px !important;
+  height: 32px !important;
   display: block !important;
 }
 
 .forecast-day-card .day-conditions {
-  font-size: 10px !important;
-  color: #94a3b8 !important;
-  min-height: 24px !important;
+  font-size: 12px !important;
+  color: #cbd5e1 !important;
+  min-height: 28px !important;
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  line-height: 1.2 !important;
+  line-height: 1.25 !important;
   text-align: center !important;
+  font-weight: 500 !important;
 }
 
 .forecast-day-card .day-temps {
-  font-size: 13px !important;
-  font-weight: 500 !important;
-  margin-top: 4px !important;
+  font-size: 15px !important;
+  font-weight: 700 !important;
+  margin-top: 6px !important;
 }
 
 .forecast-day-card .day-rain {
-  font-size: 10px !important;
+  font-size: 12px !important;
   color: #38bdf8 !important;
-  margin-top: 2px !important;
+  margin-top: 3px !important;
+  font-weight: 600 !important;
 }
 
 /* 24-HOUR TELEMETRY TRENDS SECTION */
@@ -1895,15 +1952,15 @@ export function getMmmTempestWxCss(): string {
 }
 
 .telemetry-title {
-  font-size: 11px !important;
+  font-size: 13px !important;
   font-weight: 700 !important;
-  letter-spacing: 1.5px !important;
+  letter-spacing: 2px !important;
   text-transform: uppercase !important;
-  color: #f1f5f9 !important;
+  color: #f8fafc !important;
 }
 
 .telemetry-sub {
-  font-size: 10px !important;
+  font-size: 12px !important;
   color: #94a3b8 !important;
   margin-top: 2px !important;
 }
@@ -1915,9 +1972,9 @@ export function getMmmTempestWxCss(): string {
 }
 
 .telemetry-arrow-btn {
-  width: 28px !important;
-  height: 28px !important;
-  border-radius: 6px !important;
+  width: 34px !important;
+  height: 34px !important;
+  border-radius: 8px !important;
   background: rgba(255, 255, 255, 0.08) !important;
   border: 1px solid rgba(255, 255, 255, 0.15) !important;
   color: #fff !important;
@@ -1926,6 +1983,7 @@ export function getMmmTempestWxCss(): string {
   justify-content: center !important;
   cursor: pointer !important;
   padding: 0 !important;
+  touch-action: manipulation !important;
   transition: all 0.2s ease !important;
 }
 
@@ -1936,21 +1994,22 @@ export function getMmmTempestWxCss(): string {
 }
 
 .telemetry-arrow-btn svg {
-  width: 14px !important;
-  height: 14px !important;
+  width: 16px !important;
+  height: 16px !important;
 }
 
 .telemetry-page-counter {
-  font-size: 11px !important;
+  font-size: 13px !important;
   font-family: monospace !important;
   color: #94a3b8 !important;
+  font-weight: 600 !important;
 }
 
 /* 5 GRAPH SELECTOR TABS */
 .graph-tabs-bar {
   display: grid !important;
   grid-template-columns: repeat(5, 1fr) !important;
-  gap: 8px !important;
+  gap: 10px !important;
   width: 100% !important;
   box-sizing: border-box !important;
 }
@@ -1960,13 +2019,14 @@ export function getMmmTempestWxCss(): string {
   flex-direction: column !important;
   align-items: flex-start !important;
   justify-content: space-between !important;
-  padding: 8px 10px !important;
-  min-height: 64px !important;
-  border-radius: 8px !important;
+  padding: 10px 12px !important;
+  min-height: 68px !important;
+  border-radius: 10px !important;
   background: rgba(255, 255, 255, 0.04) !important;
   border: 1px solid rgba(255, 255, 255, 0.1) !important;
   cursor: pointer !important;
   text-align: left !important;
+  touch-action: manipulation !important;
   transition: all 0.2s ease !important;
   box-sizing: border-box !important;
 }
@@ -1984,20 +2044,20 @@ export function getMmmTempestWxCss(): string {
 }
 
 .tab-icon {
-  width: 16px !important;
-  height: 16px !important;
+  width: 18px !important;
+  height: 18px !important;
   display: block !important;
 }
 
 .tab-label {
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 600 !important;
   color: #cbd5e1 !important;
   margin: 4px 0 2px 0 !important;
 }
 
 .tab-pill {
-  font-size: 11px !important;
+  font-size: 12px !important;
   font-weight: 700 !important;
   color: #fff !important;
 }
@@ -2042,11 +2102,11 @@ export function getMmmTempestWxCss(): string {
 .active-graph-card {
   background: rgba(0, 0, 0, 0.45) !important;
   border: 1px solid rgba(255, 255, 255, 0.12) !important;
-  border-radius: 12px !important;
-  padding: 14px !important;
+  border-radius: 14px !important;
+  padding: 16px !important;
   display: flex !important;
   flex-direction: column !important;
-  gap: 10px !important;
+  gap: 12px !important;
   box-sizing: border-box !important;
 }
 
@@ -2062,22 +2122,22 @@ export function getMmmTempestWxCss(): string {
 }
 
 .graph-card-title {
-  font-size: 13px !important;
+  font-size: 14px !important;
   font-weight: 700 !important;
   text-transform: uppercase !important;
   letter-spacing: 1px !important;
   display: flex !important;
   align-items: center !important;
-  gap: 6px !important;
+  gap: 8px !important;
 }
 
 .graph-title-icon {
-  width: 16px !important;
-  height: 16px !important;
+  width: 18px !important;
+  height: 18px !important;
 }
 
 .graph-card-sub {
-  font-size: 10px !important;
+  font-size: 12px !important;
   color: #94a3b8 !important;
   margin-top: 2px !important;
 }
@@ -2085,44 +2145,47 @@ export function getMmmTempestWxCss(): string {
 .scrubber-badge {
   display: flex !important;
   align-items: center !important;
-  gap: 8px !important;
-  background: rgba(255, 255, 255, 0.06) !important;
-  border: 1px solid rgba(255, 255, 255, 0.14) !important;
-  border-radius: 20px !important;
-  padding: 4px 10px !important;
-  font-size: 11px !important;
+  gap: 10px !important;
+  background: rgba(255, 255, 255, 0.08) !important;
+  border: 1px solid rgba(255, 255, 255, 0.18) !important;
+  border-radius: 12px !important;
+  padding: 6px 14px !important;
+  font-size: 13px !important;
 }
 
 .scrubber-time {
   font-weight: 600 !important;
-  color: #94a3b8 !important;
+  color: #cbd5e1 !important;
+  font-size: 13px !important;
 }
 
 .scrubber-sep {
-  color: rgba(255, 255, 255, 0.2) !important;
+  color: rgba(255, 255, 255, 0.25) !important;
 }
 
 .scrubber-val {
-  font-weight: 700 !important;
-  font-size: 13px !important;
+  font-weight: 800 !important;
+  font-size: 16px !important;
 }
 
 .scrubber-secondary {
   color: #cbd5e1 !important;
-  font-size: 11px !important;
+  font-size: 12px !important;
+  font-weight: 500 !important;
 }
 
 .scrubber-cond {
   display: flex !important;
   align-items: center !important;
-  gap: 4px !important;
-  font-size: 11px !important;
+  gap: 6px !important;
+  font-size: 12px !important;
   color: #e2e8f0 !important;
+  font-weight: 500 !important;
 }
 
 .scrubber-cond svg {
-  width: 16px !important;
-  height: 16px !important;
+  width: 18px !important;
+  height: 18px !important;
   display: block !important;
 }
 
@@ -2130,9 +2193,9 @@ export function getMmmTempestWxCss(): string {
 .svg-graph-wrapper {
   position: relative !important;
   width: 100% !important;
-  height: 175px !important;
+  height: 190px !important;
   background: rgba(255, 255, 255, 0.02) !important;
-  border-radius: 8px !important;
+  border-radius: 10px !important;
   overflow: hidden !important;
   box-sizing: border-box !important;
 }
@@ -2149,11 +2212,11 @@ export function getMmmTempestWxCss(): string {
 }
 
 .grid-line {
-  border-bottom: 1px dashed rgba(255, 255, 255, 0.08) !important;
+  border-bottom: 1px dashed rgba(255, 255, 255, 0.12) !important;
   display: flex !important;
   justify-content: flex-end !important;
-  font-size: 9px !important;
-  color: #64748b !important;
+  font-size: 11px !important;
+  color: #94a3b8 !important;
   padding-bottom: 2px !important;
 }
 
@@ -2170,6 +2233,8 @@ export function getMmmTempestWxCss(): string {
   width: 100% !important;
   height: 100% !important;
   z-index: 10 !important;
+  touch-action: none !important;
+  cursor: crosshair !important;
 }
 
 .scrubber-touch-col {
@@ -2193,10 +2258,11 @@ export function getMmmTempestWxCss(): string {
 }
 
 .timeline-hour-col {
-  font-size: 9px !important;
-  color: #64748b !important;
+  font-size: 11px !important;
+  color: #94a3b8 !important;
   text-align: center !important;
   flex: 1 !important;
+  font-weight: 500 !important;
 }
 
 .timeline-hour-col.active-hour {
@@ -2208,31 +2274,32 @@ export function getMmmTempestWxCss(): string {
 .graph-stats-grid {
   display: grid !important;
   grid-template-columns: repeat(4, 1fr) !important;
-  gap: 8px !important;
-  margin-top: 4px !important;
+  gap: 10px !important;
+  margin-top: 6px !important;
   width: 100% !important;
   box-sizing: border-box !important;
 }
 
 .stat-tile {
   background: rgba(255, 255, 255, 0.04) !important;
-  border: 1px solid rgba(255, 255, 255, 0.07) !important;
-  border-radius: 8px !important;
-  padding: 8px 10px !important;
+  border: 1px solid rgba(255, 255, 255, 0.09) !important;
+  border-radius: 10px !important;
+  padding: 10px 12px !important;
   text-align: center !important;
   box-sizing: border-box !important;
 }
 
 .stat-name {
-  font-size: 9px !important;
+  font-size: 11px !important;
   letter-spacing: 1px !important;
   text-transform: uppercase !important;
   color: #94a3b8 !important;
-  margin-bottom: 2px !important;
+  margin-bottom: 3px !important;
+  font-weight: 600 !important;
 }
 
 .stat-val {
-  font-size: 13px !important;
+  font-size: 15px !important;
   font-weight: 700 !important;
 }
 
@@ -2419,17 +2486,9 @@ mv MMM-TempestWx/MMM-TempestWx/* MMM-TempestWx/
 rmdir MMM-TempestWx/MMM-TempestWx
 \`\`\`
 
-### Error: "require is not defined in ES module scope"
+### Zero Dependencies & No package.json Conflicts
 
-MagicMirror modules run as standard CommonJS modules. If your \`package.json\` has \`"type": "module"\`, either delete that line or set:
-
-\`\`\`json
-{
-  "type": "commonjs"
-}
-\`\`\`
-
-Because this module has zero runtime dependencies, you can also delete \`package.json\` entirely from the module directory.
+MagicMirror modules run as standard CommonJS modules. This module uses pure Node.js built-in APIs (\`https\`) and has **zero third-party npm dependencies**. No \`package.json\` file is needed or included in the module directory, preventing any ESM/CommonJS conflicts (\`"require is not defined in ES module scope"\`).
 
 ---
 
@@ -2440,7 +2499,6 @@ MMM-TempestWx/
 ├── MMM-TempestWx.js        # MagicMirror front-end module definition & in-place DOM updates
 ├── node_helper.js          # Built-in Node.js https proxy for Tempest REST API
 ├── MMM-TempestWx.css       # Two-way mirror high-contrast styling & modal layouts
-├── package.json            # CommonJS package manifest
 ├── README.md               # Documentation & setup guide
 ├── src/                    # Web simulator & React development workspace
 │   ├── components/         # React simulator components & SVG icon library

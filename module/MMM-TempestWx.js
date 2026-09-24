@@ -513,7 +513,13 @@ Module.register("MMM-TempestWx", {
     `;
 
     const closeBtn = modalBox.querySelector("#tempest-modal-close-btn");
-    if (closeBtn) closeBtn.addEventListener("click", () => this.closeTouchModal());
+    if (closeBtn) {
+      closeBtn.addEventListener("pointerdown", (e) => {
+        e.preventDefault();
+        this.closeTouchModal();
+      });
+      closeBtn.addEventListener("click", () => this.closeTouchModal());
+    }
 
     // Render interactive telemetry trends graphs
     const telemetryContainer = modalBox.querySelector("#tempest-telemetry-container");
@@ -628,37 +634,84 @@ Module.register("MMM-TempestWx", {
 
     const tabBtns = container.querySelectorAll(".graph-tab-btn");
     tabBtns.forEach(btn => {
-      btn.addEventListener("click", () => {
+      const handleTab = (e) => {
+        if (e && e.type === "pointerdown") e.preventDefault();
         this.activeGraphTab = btn.getAttribute("data-tab");
         this.modalCountdown = this.config.autoCloseModalSeconds || 30;
         this.renderTelemetrySection(container, hourly, isImperial);
-      });
+      };
+      btn.addEventListener("pointerdown", handleTab);
+      btn.addEventListener("click", handleTab);
     });
 
     const prevBtn = container.querySelector("#telemetry-prev-btn");
     if (prevBtn) {
-      prevBtn.addEventListener("click", () => {
+      const handlePrev = (e) => {
+        if (e && e.type === "pointerdown") e.preventDefault();
         const nextIdx = (currentTabIdx - 1 + tabs.length) % tabs.length;
         this.activeGraphTab = tabs[nextIdx].id;
         this.modalCountdown = this.config.autoCloseModalSeconds || 30;
         this.renderTelemetrySection(container, hourly, isImperial);
-      });
+      };
+      prevBtn.addEventListener("pointerdown", handlePrev);
+      prevBtn.addEventListener("click", handlePrev);
     }
 
     const nextBtn = container.querySelector("#telemetry-next-btn");
     if (nextBtn) {
-      nextBtn.addEventListener("click", () => {
+      const handleNext = (e) => {
+        if (e && e.type === "pointerdown") e.preventDefault();
         const nextIdx = (currentTabIdx + 1) % tabs.length;
         this.activeGraphTab = tabs[nextIdx].id;
         this.modalCountdown = this.config.autoCloseModalSeconds || 30;
         this.renderTelemetrySection(container, hourly, isImperial);
-      });
+      };
+      nextBtn.addEventListener("pointerdown", handleNext);
+      nextBtn.addEventListener("click", handleNext);
     }
 
     this.attachScrubberEvents(container, hourly, isImperial);
   },
 
   attachScrubberEvents: function (container, hourly, isImperial) {
+    const overlay = container.querySelector(".svg-touch-overlay");
+    if (overlay) {
+      const calculateAndSetIndex = (clientX) => {
+        const rect = overlay.getBoundingClientRect();
+        if (rect.width <= 0) return;
+        const offset = Math.max(0, Math.min(rect.width, clientX - rect.left));
+        const fraction = offset / rect.width;
+        const newIdx = Math.min(hourly.length - 1, Math.max(0, Math.floor(fraction * hourly.length)));
+        if (this.activeHourlyIndex !== newIdx) {
+          this.activeHourlyIndex = newIdx;
+          this.modalCountdown = this.config.autoCloseModalSeconds || 30;
+          const graphCard = container.querySelector("#active-graph-card-content");
+          if (graphCard) {
+            graphCard.innerHTML = this.generateGraphCardHtml(this.activeGraphTab, hourly, isImperial, newIdx);
+            this.attachScrubberEvents(container, hourly, isImperial);
+          }
+        }
+      };
+
+      overlay.addEventListener("pointerdown", (e) => {
+        try { overlay.setPointerCapture(e.pointerId); } catch (_) {}
+        calculateAndSetIndex(e.clientX);
+      });
+      overlay.addEventListener("pointermove", (e) => {
+        if (e.buttons > 0 || e.pointerType === "mouse") {
+          calculateAndSetIndex(e.clientX);
+        }
+      });
+      overlay.addEventListener("pointerup", (e) => {
+        try { overlay.releasePointerCapture(e.pointerId); } catch (_) {}
+      });
+      overlay.addEventListener("touchmove", (e) => {
+        if (e.touches.length > 0) {
+          calculateAndSetIndex(e.touches[0].clientX);
+        }
+      }, { passive: true });
+    }
+
     const touchCols = container.querySelectorAll(".scrubber-touch-col");
     touchCols.forEach(col => {
       const idx = parseInt(col.getAttribute("data-index"), 10);
