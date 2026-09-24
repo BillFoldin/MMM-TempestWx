@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ModuleConfig, Units, PressureUnit, MirrorPosition } from '../types/tempest.ts';
+import { ModuleConfig, Units, PressureUnit, MirrorPosition, WeatherProvider } from '../types/tempest.ts';
 import { STATION_PRESETS } from '../utils/mockStations.ts';
 
 interface StationConfigModalProps {
@@ -21,6 +21,9 @@ export const StationConfigModal: React.FC<StationConfigModalProps> = ({
 }) => {
   const [stationId, setStationId] = useState(config.stationId);
   const [token, setToken] = useState(config.token);
+  const [weatherProvider, setWeatherProvider] = useState<WeatherProvider>(config.weatherProvider || 'tempest');
+  const [latitude, setLatitude] = useState<string>(config.latitude !== undefined && config.latitude !== null ? String(config.latitude) : '');
+  const [longitude, setLongitude] = useState<string>(config.longitude !== undefined && config.longitude !== null ? String(config.longitude) : '');
   const [units, setUnits] = useState<Units>(config.units);
   const [pressureUnit, setPressureUnit] = useState<PressureUnit>(config.pressureUnit);
   const [showModalOnTouch, setShowModalOnTouch] = useState(config.showModalOnTouch);
@@ -33,10 +36,16 @@ export const StationConfigModal: React.FC<StationConfigModalProps> = ({
   if (!isOpen) return null;
 
   const handleSave = () => {
+    const latNum = latitude.trim() !== '' ? parseFloat(latitude.trim()) : undefined;
+    const lonNum = longitude.trim() !== '' ? parseFloat(longitude.trim()) : undefined;
+
     onSaveConfig({
       ...config,
       stationId,
       token,
+      weatherProvider,
+      latitude: latNum !== undefined && !isNaN(latNum) ? latNum : undefined,
+      longitude: lonNum !== undefined && !isNaN(lonNum) ? lonNum : undefined,
       units,
       pressureUnit,
       showModalOnTouch,
@@ -148,6 +157,87 @@ export const StationConfigModal: React.FC<StationConfigModalProps> = ({
                 </p>
               </div>
             </div>
+          </div>
+
+          {/* Weather Provider Selection */}
+          <div className="border-t border-neutral-800/80 pt-4 space-y-3">
+            <label className="block text-xs font-medium text-neutral-300 uppercase tracking-wider">
+              7-Day Forecast Data Source
+            </label>
+            <div className="grid grid-cols-2 gap-2 p-1 bg-neutral-900 rounded-xl border border-neutral-800">
+              <button
+                type="button"
+                onClick={() => setWeatherProvider('tempest')}
+                className={`py-2 px-3 text-left rounded-lg transition-all ${
+                  weatherProvider === 'tempest'
+                    ? 'bg-neutral-800 border border-neutral-600 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <div className="text-xs font-semibold flex items-center justify-between">
+                  <span>Tempest Forecast</span>
+                  {weatherProvider === 'tempest' && <span className="text-[10px] text-sky-400 font-mono">ACTIVE</span>}
+                </div>
+                <div className="text-[11px] text-neutral-400 mt-0.5">
+                  WeatherFlow AI Better Forecast engine
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setWeatherProvider('NOAA')}
+                className={`py-2 px-3 text-left rounded-lg transition-all ${
+                  weatherProvider === 'NOAA'
+                    ? 'bg-neutral-800 border border-neutral-600 text-white shadow-sm'
+                    : 'text-neutral-400 hover:text-white border border-transparent'
+                }`}
+              >
+                <div className="text-xs font-semibold flex items-center justify-between">
+                  <span>NOAA.gov Forecast</span>
+                  {weatherProvider === 'NOAA' && <span className="text-[10px] text-sky-400 font-mono">ACTIVE</span>}
+                </div>
+                <div className="text-[11px] text-neutral-400 mt-0.5">
+                  US National Weather Service (api.weather.gov)
+                </div>
+              </button>
+            </div>
+
+            {weatherProvider === 'NOAA' && (
+              <div className="p-3 bg-neutral-900/60 rounded-xl border border-neutral-800/80 space-y-2.5">
+                <div className="text-[11px] text-neutral-300">
+                  <span className="font-semibold text-sky-400">NOAA National Weather Service:</span> Observations continue streaming live from your Tempest station, while the 7-day extended forecast uses NOAA.gov.
+                </div>
+                <div className="grid grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-[10px] text-neutral-400 mb-1">
+                      Custom Latitude (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={latitude}
+                      onChange={(e) => setLatitude(e.target.value)}
+                      placeholder="Auto from station (e.g. 40.7128)"
+                      className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-600"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[10px] text-neutral-400 mb-1">
+                      Custom Longitude (Optional)
+                    </label>
+                    <input
+                      type="text"
+                      value={longitude}
+                      onChange={(e) => setLongitude(e.target.value)}
+                      placeholder="Auto from station (e.g. -74.0060)"
+                      className="w-full px-2.5 py-1.5 bg-neutral-950 border border-neutral-800 rounded-lg text-xs font-mono text-white placeholder-neutral-600 focus:outline-none focus:border-neutral-600"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-neutral-500">
+                  Leave latitude & longitude blank to automatically use your Tempest station's GPS coordinates.
+                </p>
+              </div>
+            )}
           </div>
 
           {/* Unit & Display Preferences */}

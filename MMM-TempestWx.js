@@ -10,6 +10,9 @@ Module.register("MMM-TempestWx", {
   defaults: {
     stationId: "",              // Your Tempest Station ID
     token: "",                  // Your Tempest Personal Use Token (from tempestwx.com)
+    weatherProvider: "tempest", // "tempest" (WeatherFlow Better Forecast) or "NOAA" (api.weather.gov 7-day forecast)
+    latitude: null,             // Optional custom latitude for NOAA (auto-detected from station if null)
+    longitude: null,            // Optional custom longitude for NOAA (auto-detected from station if null)
     units: "imperial",          // "imperial" (°F, mph, inHg) or "metric" (°C, km/h, hPa)
     pressureUnit: "inHg",       // "inHg", "hPa", or "mb"
     updateInterval: 60 * 1000,  // Check every 60 seconds
@@ -496,6 +499,9 @@ Module.register("MMM-TempestWx", {
       `;
     }).join("");
 
+    const isNoaa = String(this.stationData.forecast_source || this.config.weatherProvider || "tempest").toUpperCase() === "NOAA";
+    const providerBadgeText = isNoaa ? "NOAA.gov" : "Tempest";
+
     modalBox.innerHTML = `
       <div class="modal-head">
         <div>
@@ -505,7 +511,9 @@ Module.register("MMM-TempestWx", {
         <button class="modal-close-btn bright" id="tempest-modal-close-btn">✕ Close</button>
       </div>
 
-      <div class="modal-section-title dimmed small">7-Day Extended Forecast</div>
+      <div class="modal-section-title dimmed small">
+        7-Day Extended Forecast <span class="tempest-provider-tag">${providerBadgeText}</span>
+      </div>
       <div class="forecast-grid">${dailyHtml}</div>
 
       <!-- 24-HOUR LOCAL TELEMETRY TRENDS SECTION -->

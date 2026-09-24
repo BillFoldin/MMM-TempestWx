@@ -85,6 +85,62 @@ async function startServer() {
     }
   });
 
+  // Built-in Node.js API call for NOAA National Weather Service (api.weather.gov) 7-day forecast
+  app.get('/api/noaa/forecast', async (req, res) => {
+    const lat = parseFloat(req.query.lat as string);
+    const lon = parseFloat(req.query.lon as string);
+
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ error: 'Valid lat and lon parameters are required for NOAA API.' });
+    }
+
+    try {
+      const latStr = lat.toFixed(4);
+      const lonStr = lon.toFixed(4);
+      const pointsUrl = `https://api.weather.gov/points/${latStr},${lonStr}`;
+
+      const pointsRes = await fetch(pointsUrl, {
+        headers: {
+          'Accept': 'application/geo+json, application/json',
+          'User-Agent': 'MagicMirror-MMM-TempestWx/1.0 (https://github.com/BillFoldin/MMM-TempestWx)',
+        },
+      });
+
+      if (!pointsRes.ok) {
+        const errText = await pointsRes.text();
+        return res.status(pointsRes.status).json({
+          error: `NOAA Points API responded with ${pointsRes.status}: ${errText || pointsRes.statusText}`,
+        });
+      }
+
+      const pointsData = await pointsRes.json();
+      const forecastUrl = pointsData?.properties?.forecast;
+
+      if (!forecastUrl) {
+        return res.status(404).json({ error: 'No forecast endpoint available from NOAA for these coordinates.' });
+      }
+
+      const forecastRes = await fetch(forecastUrl, {
+        headers: {
+          'Accept': 'application/geo+json, application/json',
+          'User-Agent': 'MagicMirror-MMM-TempestWx/1.0 (https://github.com/BillFoldin/MMM-TempestWx)',
+        },
+      });
+
+      if (!forecastRes.ok) {
+        const errText = await forecastRes.text();
+        return res.status(forecastRes.status).json({
+          error: `NOAA Forecast API responded with ${forecastRes.status}: ${errText || forecastRes.statusText}`,
+        });
+      }
+
+      const forecastData = await forecastRes.json();
+      res.json(forecastData);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal error fetching NOAA forecast' });
+    }
+  });
+
   // In development, hook into Vite middlewares
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

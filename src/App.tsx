@@ -40,12 +40,13 @@ export default function App() {
     compactMode: false,
     mirrorPosition: 'top_right',
     theme: 'native-mirror',
+    weatherProvider: 'tempest',
   });
 
   // Current Station data
   const [stationData, setStationData] = useState<TempestStationData>(() => {
     const preset = STATION_PRESETS[0];
-    return getPresetStationData(preset);
+    return getPresetStationData(preset, 'tempest');
   });
 
   // Fetch or refresh station data
@@ -56,14 +57,20 @@ export default function App() {
     try {
       if (cfg.token && cfg.stationId && !cfg.stationId.startsWith('tempest-')) {
         // Live WeatherFlow API via Node.js backend
-        const liveData = await fetchLiveTempestData(cfg.stationId, cfg.token);
+        const liveData = await fetchLiveTempestData(
+          cfg.stationId,
+          cfg.token,
+          cfg.weatherProvider || 'tempest',
+          cfg.latitude,
+          cfg.longitude
+        );
         setStationData(liveData);
-        setStatusNotice(`Connected to live Tempest Station #${cfg.stationId}`);
+        setStatusNotice(`Connected to live Tempest Station #${cfg.stationId} (7-day forecast: ${cfg.weatherProvider === 'NOAA' ? 'NOAA.gov' : 'Tempest'})`);
       } else {
         // Preset simulation
         const targetPreset =
           STATION_PRESETS.find((p) => p.id === (presetId || cfg.stationId)) || STATION_PRESETS[0];
-        const simulated = getPresetStationData(targetPreset);
+        const simulated = getPresetStationData(targetPreset, cfg.weatherProvider || 'tempest');
         setStationData(simulated);
       }
     } catch (err: any) {
@@ -72,7 +79,7 @@ export default function App() {
       // Fallback to preset
       const targetPreset =
         STATION_PRESETS.find((p) => p.id === presetId) || STATION_PRESETS[0];
-      setStationData(getPresetStationData(targetPreset));
+      setStationData(getPresetStationData(targetPreset, cfg.weatherProvider || 'tempest'));
     } finally {
       setIsLoading(false);
     }

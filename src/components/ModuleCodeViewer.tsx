@@ -5,7 +5,6 @@ import {
   getMmmTempestWxJs,
   getNodeHelperJs,
   getMmmTempestWxCss,
-  getPackageJson,
   getReadmeMd,
 } from '../utils/moduleSourceCode.ts';
 
@@ -33,6 +32,7 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
   config: {
     stationId: "${config.stationId || 'YOUR_STATION_ID'}",
     token: "${config.token || 'YOUR_TEMPEST_TOKEN'}",
+    weatherProvider: "${config.weatherProvider || 'tempest'}", // "tempest" or "NOAA"
     units: "${config.units}",
     pressureUnit: "${config.pressureUnit}",
     updateInterval: ${config.updateIntervalSeconds * 1000},

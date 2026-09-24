@@ -214,6 +214,13 @@ export const WeatherModal: React.FC<WeatherModalProps> = ({
             <div className="flex items-center justify-between mb-3">
               <h3 className="text-xs sm:text-sm font-semibold tracking-widest text-neutral-300 uppercase font-sans flex items-center gap-2">
                 <span>7-Day Extended Forecast</span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full font-mono font-normal normal-case border ${
+                  config.weatherProvider === 'NOAA'
+                    ? 'bg-sky-500/10 text-sky-400 border-sky-500/30'
+                    : 'bg-neutral-800 text-neutral-300 border-neutral-700'
+                }`}>
+                  {config.weatherProvider === 'NOAA' ? 'NOAA.gov' : 'Tempest'}
+                </span>
               </h3>
               <span className="text-xs text-neutral-400 font-sans">
                 Tap day to inspect

@@ -1,8 +1,14 @@
-import { TempestStationData, TempestObservation, DailyForecast, HourlyForecast } from '../types/tempest.ts';
+import { TempestStationData, TempestObservation, DailyForecast, HourlyForecast, WeatherProvider } from '../types/tempest.ts';
 import { degreesToCardinal } from './tempestFormat.ts';
-import { generateForecastDaily, generateForecastHourly } from './mockStations.ts';
+import { generateForecastDaily, generateForecastHourly, generateNoaaForecastDaily } from './mockStations.ts';
 
-export async function fetchLiveTempestData(stationId: string, token: string): Promise<TempestStationData> {
+export async function fetchLiveTempestData(
+  stationId: string,
+  token: string,
+  weatherProvider: WeatherProvider = 'tempest',
+  customLat?: number,
+  customLon?: number
+): Promise<TempestStationData> {
   if (!stationId || !token) {
     throw new Error('Station ID and Tempest Personal Access Token are required.');
   }
@@ -158,28 +164,79 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
   };
 
   let daily: DailyForecast[] = [];
-  if (forecastData?.forecast?.daily?.length) {
-    daily = forecastData.forecast.daily.slice(0, 7).map((d: any, idx: number) => {
-      const date = new Date(d.day_start_local * 1000);
-      const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-      const highTemp = d.air_temp_high ?? d.air_temperature_high ?? d.high_temp ?? d.temp_high ?? 20;
-      const lowTemp = d.air_temp_low ?? d.air_temperature_low ?? d.low_temp ?? d.temp_low ?? 10;
-      return {
-        day_start_local: d.day_start_local,
-        day_name: idx === 0 ? 'Today' : idx === 1 ? 'Tomorrow' : days[date.getDay()],
-        date_label: `${date.getMonth() + 1}/${date.getDate()}`,
-        conditions: d.conditions || 'Partly Cloudy',
-        icon: mapWeatherFlowIcon(d.icon),
-        air_temp_high: Number(highTemp),
-        air_temp_low: Number(lowTemp),
-        precip_probability: d.precip_probability ?? 0,
-        wind_avg: d.wind_avg ?? 3,
-        wind_direction_cardinal: d.wind_direction_cardinal || 'W',
-        uv: d.uv ?? 5,
-      };
-    });
-  } else {
-    daily = generateForecastDaily(airTemp, stationId);
+  let forecastSource: WeatherProvider = 'tempest';
+
+  const isNoaa = String(weatherProvider).toUpperCase() === 'NOAA';
+
+  if (isNoaa) {
+    let lat: number | null = typeof customLat === 'number' && !isNaN(customLat) ? customLat : null;
+    let lon: number | null = typeof customLon === 'number' && !isNaN(customLon) ? customLon : null;
+
+    if (lat === null || lon === null) {
+      if (typeof forecastData?.latitude === 'number' && typeof forecastData?.longitude === 'number') {
+        lat = forecastData.latitude;
+        lon = forecastData.longitude;
+      } else {
+        try {
+          const stRes = await fetch(`https://swd.weatherflow.com/swd/rest/stations/${cleanStationId}?token=${cleanToken}`);
+          if (stRes.ok) {
+            const stData = await stRes.json();
+            const stationObj = stData?.stations?.[0];
+            if (stationObj && typeof stationObj.latitude === 'number' && typeof stationObj.longitude === 'number') {
+              lat = stationObj.latitude;
+              lon = stationObj.longitude;
+            }
+          }
+        } catch {
+          // ignore metadata error
+        }
+      }
+    }
+
+    if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
+      try {
+        const noaaRes = await fetch(`/api/noaa/forecast?lat=${lat}&lon=${lon}`);
+        if (noaaRes.ok) {
+          const noaaData = await noaaRes.json();
+          const parsedDaily = parseNoaaForecastPeriods(noaaData);
+          if (parsedDaily.length > 0) {
+            daily = parsedDaily;
+            forecastSource = 'NOAA';
+          }
+        }
+      } catch (noaaErr) {
+        console.warn('Could not fetch NOAA forecast, falling back to Tempest forecast', noaaErr);
+      }
+    }
+  }
+
+  // Fallback to Tempest forecast if daily is still empty
+  if (daily.length === 0) {
+    if (forecastData?.forecast?.daily?.length) {
+      daily = forecastData.forecast.daily.slice(0, 7).map((d: any, idx: number) => {
+        const date = new Date(d.day_start_local * 1000);
+        const days = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+        const highTemp = d.air_temp_high ?? d.air_temperature_high ?? d.high_temp ?? d.temp_high ?? 20;
+        const lowTemp = d.air_temp_low ?? d.air_temperature_low ?? d.low_temp ?? d.temp_low ?? 10;
+        return {
+          day_start_local: d.day_start_local,
+          day_name: idx === 0 ? 'Today' : idx === 1 ? 'Tomorrow' : days[date.getDay()],
+          date_label: `${date.getMonth() + 1}/${date.getDate()}`,
+          conditions: d.conditions || 'Partly Cloudy',
+          icon: mapWeatherFlowIcon(d.icon),
+          air_temp_high: Number(highTemp),
+          air_temp_low: Number(lowTemp),
+          precip_probability: d.precip_probability ?? 0,
+          wind_avg: d.wind_avg ?? 3,
+          wind_direction_cardinal: d.wind_direction_cardinal || 'W',
+          uv: d.uv ?? 5,
+        };
+      });
+      forecastSource = 'tempest';
+    } else {
+      daily = isNoaa ? generateNoaaForecastDaily(airTemp, stationId) : generateForecastDaily(airTemp, stationId);
+      forecastSource = isNoaa ? 'NOAA' : 'tempest';
+    }
   }
 
   let hourly: HourlyForecast[] = [];
@@ -220,9 +277,137 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
     observation,
     forecast_daily: daily,
     forecast_hourly: hourly,
+    forecast_source: forecastSource,
     is_live: true,
     error: null,
   };
+}
+
+export function parseNoaaForecastPeriods(noaaData: any): DailyForecast[] {
+  const periods = noaaData?.properties?.periods || [];
+  if (!periods.length) return [];
+
+  const daysMap = new Map<string, { dateKey: string; daytime: any; nighttime: any; periods: any[] }>();
+  const daysOrder: string[] = [];
+
+  for (const p of periods) {
+    const dateKey = (p.startTime || '').split('T')[0];
+    if (!dateKey) continue;
+
+    if (!daysMap.has(dateKey)) {
+      if (daysOrder.length >= 7) continue;
+      daysOrder.push(dateKey);
+      daysMap.set(dateKey, { dateKey, daytime: null, nighttime: null, periods: [] });
+    }
+    const entry = daysMap.get(dateKey)!;
+    entry.periods.push(p);
+    if (p.isDaytime) {
+      entry.daytime = p;
+    } else {
+      entry.nighttime = p;
+    }
+  }
+
+  const weekdayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+  return daysOrder.map((dateKey, index) => {
+    const entry = daysMap.get(dateKey)!;
+    const dayPeriod = entry.daytime;
+    const nightPeriod = entry.nighttime;
+    const primaryPeriod = dayPeriod || nightPeriod || entry.periods[0];
+
+    const d = new Date(primaryPeriod.startTime);
+    const dayName = index === 0 ? 'Today' : index === 1 ? 'Tomorrow' : weekdayNames[d.getDay()];
+    const dateLabel = `${d.getMonth() + 1}/${d.getDate()}`;
+
+    const toCelsius = (temp: any, unit: string) => {
+      const num = typeof temp === 'number' ? temp : parseFloat(temp);
+      if (isNaN(num)) return 20;
+      return unit === 'C' ? num : (num - 32) * (5 / 9);
+    };
+
+    let highC = dayPeriod ? toCelsius(dayPeriod.temperature, dayPeriod.temperatureUnit) : null;
+    let lowC = nightPeriod ? toCelsius(nightPeriod.temperature, nightPeriod.temperatureUnit) : null;
+
+    if (highC === null && lowC !== null) {
+      highC = lowC + 4;
+    } else if (lowC === null && highC !== null) {
+      lowC = highC - 5;
+    } else if (highC === null && lowC === null) {
+      highC = 20;
+      lowC = 12;
+    }
+
+    if (lowC > highC) {
+      const tmp = highC;
+      highC = lowC;
+      lowC = tmp;
+    }
+
+    const conditions = (dayPeriod?.shortForecast || nightPeriod?.shortForecast || 'Clear').trim();
+    const icon = mapNoaaIcon(dayPeriod?.icon || nightPeriod?.icon, conditions, !dayPeriod);
+
+    const precipProb = Math.max(
+      dayPeriod?.probabilityOfPrecipitation?.value || 0,
+      nightPeriod?.probabilityOfPrecipitation?.value || 0
+    );
+
+    const windSpeedStr = dayPeriod?.windSpeed || nightPeriod?.windSpeed || '5 mph';
+    const windMatches = windSpeedStr.match(/\d+/g);
+    let windMph = 5;
+    if (windMatches && windMatches.length > 0) {
+      const nums = windMatches.map(Number);
+      windMph = nums.reduce((a: number, b: number) => a + b, 0) / nums.length;
+    }
+    const windAvgMs = windMph * 0.44704;
+
+    const windDir = dayPeriod?.windDirection || nightPeriod?.windDirection || 'W';
+
+    return {
+      day_start_local: Math.floor(d.getTime() / 1000),
+      day_name: dayName,
+      date_label: dateLabel,
+      conditions,
+      icon,
+      air_temp_high: Number(highC.toFixed(1)),
+      air_temp_low: Number(lowC.toFixed(1)),
+      precip_probability: precipProb,
+      wind_avg: Number(windAvgMs.toFixed(1)),
+      wind_direction_cardinal: windDir,
+      uv: 5,
+    };
+  });
+}
+
+export function mapNoaaIcon(iconUrl: string, conditions: string, isNight = false): string {
+  const text = ((iconUrl || '') + ' ' + (conditions || '')).toLowerCase();
+  const night = isNight || text.includes('/night/') || text.includes('night') || text.includes('moon');
+
+  if (text.includes('tsra') || text.includes('thunder') || text.includes('lightning') || text.includes('tstorm')) {
+    return 'thunderstorm';
+  }
+  if (text.includes('snow') || text.includes('flurries') || text.includes('blizzard') || text.includes('sleet')) {
+    return 'snow';
+  }
+  if (text.includes('rain') || text.includes('shower') || text.includes('drizzle')) {
+    return night ? 'rain-night' : 'rain';
+  }
+  if (text.includes('fog') || text.includes('mist') || text.includes('haze') || text.includes('smoke')) {
+    return 'fog';
+  }
+  if (text.includes('wind') || text.includes('breezy')) {
+    return 'windy';
+  }
+  if (text.includes('bkn') || text.includes('ovc') || text.includes('cloud') || text.includes('overcast')) {
+    return night ? 'cloudy-night' : 'cloudy';
+  }
+  if (text.includes('sct') || text.includes('few') || text.includes('partly')) {
+    return night ? 'partly-cloudy-night' : 'partly-cloudy';
+  }
+  if (text.includes('skc') || text.includes('clear') || text.includes('sunny')) {
+    return night ? 'clear-night' : 'clear';
+  }
+  return night ? 'clear-night' : 'partly-cloudy';
 }
 
 function mapWeatherFlowIcon(iconStr: string, isNight = false): string {

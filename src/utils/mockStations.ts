@@ -1,10 +1,12 @@
-import { TempestStationData, DailyForecast, HourlyForecast, TempestObservation } from '../types/tempest.ts';
+import { TempestStationData, DailyForecast, HourlyForecast, TempestObservation, WeatherProvider } from '../types/tempest.ts';
 import { degreesToCardinal } from './tempestFormat.ts';
 
 export interface StationPreset {
   id: string;
   name: string;
   location: string;
+  lat: number;
+  lon: number;
   tempC: number;
   humidity: number;
   pressureMb: number;
@@ -25,6 +27,8 @@ export const STATION_PRESETS: StationPreset[] = [
     id: 'tempest-summit-01',
     name: 'Summit Ridge Weather Station',
     location: 'Mount Washington Foothills, NH',
+    lat: 44.2706,
+    lon: -71.3033,
     tempC: 13.8, // ~57°F
     humidity: 58,
     pressureMb: 1012.4, // ~29.89 inHg
@@ -43,6 +47,8 @@ export const STATION_PRESETS: StationPreset[] = [
     id: 'tempest-coastal-02',
     name: 'Cape Hatteras Maritime Station',
     location: 'Outer Banks, NC',
+    lat: 35.2192,
+    lon: -75.7042,
     tempC: 24.5, // ~76°F
     humidity: 84,
     pressureMb: 1018.6, // ~30.08 inHg
@@ -61,6 +67,8 @@ export const STATION_PRESETS: StationPreset[] = [
     id: 'tempest-valley-03',
     name: 'Highland Valley Orchard',
     location: 'Sonoma County, CA',
+    lat: 38.2919,
+    lon: -122.4580,
     tempC: 21.0, // ~70°F
     humidity: 42,
     pressureMb: 1016.2, // ~30.01 inHg
@@ -79,6 +87,8 @@ export const STATION_PRESETS: StationPreset[] = [
     id: 'tempest-desert-05',
     name: 'Sonoran Desert Solar Research',
     location: 'Tucson Basin, AZ',
+    lat: 32.2226,
+    lon: -110.9747,
     tempC: 34.2, // ~94°F
     humidity: 18,
     pressureMb: 1010.5,
@@ -97,6 +107,8 @@ export const STATION_PRESETS: StationPreset[] = [
     id: 'tempest-storm-04',
     name: 'Midwest Plains Tempest Node',
     location: 'Cedar Rapids, IA',
+    lat: 41.9779,
+    lon: -91.6656,
     tempC: 18.2, // ~65°F
     humidity: 91,
     pressureMb: 998.4, // Low pressure thunderstorm system
@@ -115,6 +127,8 @@ export const STATION_PRESETS: StationPreset[] = [
     id: 'tempest-night-06',
     name: 'Stargazing Observatory Node',
     location: 'Mauna Kea Saddle, HI',
+    lat: 19.8206,
+    lon: -155.4681,
     tempC: 8.5, // ~47°F crisp night
     humidity: 38,
     pressureMb: 1017.5,
@@ -240,7 +254,57 @@ export function generateForecastHourly(baseWindMs: number, baseTempC: number): H
   return result;
 }
 
-export function getPresetStationData(preset: StationPreset): TempestStationData {
+export function generateNoaaForecastDaily(baseTempC: number, presetId: string): DailyForecast[] {
+  const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+  const today = new Date();
+  const result: DailyForecast[] = [];
+
+  const noaaConditions = [
+    { cond: 'Mostly Sunny', icon: 'clear', prob: 10 },
+    { cond: 'Partly Sunny', icon: 'partly-cloudy', prob: 20 },
+    { cond: 'Chance Rain Showers', icon: 'rain', prob: 60 },
+    { cond: 'Isolated Thunderstorms', icon: 'thunderstorm', prob: 45 },
+    { cond: 'Mostly Cloudy', icon: 'cloudy', prob: 25 },
+    { cond: 'Sunny and Breezy', icon: 'windy', prob: 5 },
+    { cond: 'Sunny', icon: 'clear', prob: 0 }
+  ];
+
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(today);
+    d.setDate(today.getDate() + i);
+    const dayName = i === 0 ? 'Today' : i === 1 ? 'Tomorrow' : days[d.getDay()].slice(0, 3);
+    const dateLabel = `${d.getMonth() + 1}/${d.getDate()}`;
+
+    // NOAA-specific variation
+    const tempDelta = Math.sin(i * 1.1) * 3.8;
+    const high = baseTempC + tempDelta + (i === 0 ? 1.8 : 2.5);
+    const low = baseTempC + tempDelta - 4.2;
+
+    const noaaItem = noaaConditions[(i + (presetId === 'tempest-storm-04' ? 3 : 0)) % noaaConditions.length];
+    const isStorm = presetId === 'tempest-storm-04';
+    const rainProb = isStorm && i === 0 ? 80 : noaaItem.prob;
+    const condition = isStorm && i === 0 ? 'Scattered Thunderstorms' : noaaItem.cond;
+    const icon = isStorm && i === 0 ? 'thunderstorm' : noaaItem.icon;
+
+    result.push({
+      day_start_local: Math.floor(d.getTime() / 1000),
+      day_name: dayName,
+      date_label: dateLabel,
+      conditions: condition,
+      icon: icon,
+      air_temp_high: Number(high.toFixed(1)),
+      air_temp_low: Number(low.toFixed(1)),
+      precip_probability: rainProb,
+      wind_avg: Number((3.2 + Math.abs(Math.sin(i * 0.8)) * 3.5).toFixed(1)),
+      wind_direction_cardinal: degreesToCardinal((270 + i * 30) % 360),
+      uv: Math.min(10, Math.max(1, Math.round(5 + Math.sin(i) * 3))),
+    });
+  }
+
+  return result;
+}
+
+export function getPresetStationData(preset: StationPreset, weatherProvider: WeatherProvider = 'tempest'): TempestStationData {
   const dewPoint = preset.tempC - ((100 - preset.humidity) / 5);
   // Pressure trend: positive or negative
   const trend = preset.pressureMb < 1005 ? 'falling' : preset.pressureMb > 1020 ? 'rising' : 'steady';
@@ -273,13 +337,16 @@ export function getPresetStationData(preset: StationPreset): TempestStationData 
     icon: preset.conditionIcon,
   };
 
+  const isNoaa = String(weatherProvider).toUpperCase() === 'NOAA';
+
   return {
     station_id: preset.id,
     station_name: preset.name,
     last_updated: Date.now(),
     observation,
-    forecast_daily: generateForecastDaily(preset.tempC, preset.id),
+    forecast_daily: isNoaa ? generateNoaaForecastDaily(preset.tempC, preset.id) : generateForecastDaily(preset.tempC, preset.id),
     forecast_hourly: generateForecastHourly(preset.windMs, preset.tempC),
+    forecast_source: isNoaa ? 'NOAA' : 'tempest',
     is_live: false,
     error: null,
   };

@@ -2,6 +2,7 @@ export type Units = 'imperial' | 'metric';
 export type PressureUnit = 'inHg' | 'hPa' | 'mb';
 export type PressureTrend = 'rising' | 'falling' | 'steady';
 export type MirrorPosition = 'top_left' | 'top_right' | 'bottom_left' | 'bottom_right' | 'middle_center';
+export type WeatherProvider = 'tempest' | 'NOAA';
 
 export interface TempestObservation {
   timestamp: number;
@@ -68,6 +69,7 @@ export interface TempestStationData {
   observation: TempestObservation;
   forecast_daily: DailyForecast[];
   forecast_hourly: HourlyForecast[];
+  forecast_source?: WeatherProvider;
   is_live: boolean;
   error?: string | null;
 }
@@ -75,6 +77,9 @@ export interface TempestStationData {
 export interface ModuleConfig {
   stationId: string;
   token: string;
+  weatherProvider?: WeatherProvider; // 'tempest' (default) or 'NOAA'
+  latitude?: number;                 // optional coordinate override for NOAA
+  longitude?: number;                // optional coordinate override for NOAA
   units: Units;
   pressureUnit: PressureUnit;
   updateIntervalSeconds: number;

@@ -13,6 +13,9 @@ Module.register("MMM-TempestWx", {
   defaults: {
     stationId: "",              // Your Tempest Station ID
     token: "",                  // Your Tempest Personal Use Token (from tempestwx.com)
+    weatherProvider: "tempest", // "tempest" (WeatherFlow Better Forecast) or "NOAA" (api.weather.gov 7-day forecast)
+    latitude: null,             // Optional custom latitude for NOAA (auto-detected from station if null)
+    longitude: null,            // Optional custom longitude for NOAA (auto-detected from station if null)
     units: "imperial",          // "imperial" (°F, mph, inHg) or "metric" (°C, km/h, hPa)
     pressureUnit: "inHg",       // "inHg", "hPa", or "mb"
     updateInterval: 60 * 1000,  // Check every 60 seconds
@@ -499,6 +502,9 @@ Module.register("MMM-TempestWx", {
       \`;
     }).join("");
 
+    const isNoaa = String(this.stationData.forecast_source || this.config.weatherProvider || "tempest").toUpperCase() === "NOAA";
+    const providerBadgeText = isNoaa ? "NOAA.gov" : "Tempest";
+
     modalBox.innerHTML = \`
       <div class="modal-head">
         <div>
@@ -508,7 +514,9 @@ Module.register("MMM-TempestWx", {
         <button class="modal-close-btn bright" id="tempest-modal-close-btn">✕ Close</button>
       </div>
 
-      <div class="modal-section-title dimmed small">7-Day Extended Forecast</div>
+      <div class="modal-section-title dimmed small">
+        7-Day Extended Forecast <span class="tempest-provider-tag">\${providerBadgeText}</span>
+      </div>
       <div class="forecast-grid">\${dailyHtml}</div>
 
       <!-- 24-HOUR LOCAL TELEMETRY TRENDS SECTION -->
@@ -1405,9 +1413,54 @@ module.exports = NodeHelper.create({
         icon: forecastData?.current_conditions?.icon || (forecastData?.forecast?.daily?.[0]?.icon) || "clear-day"
       };
 
-      // Extract 7-day forecast
+      // Extract 7-day forecast based on configured weatherProvider ("tempest" or "NOAA")
+      const provider = String(this.config.weatherProvider || "tempest").trim();
+      const isNoaa = provider.toUpperCase() === "NOAA";
+
       let forecastDaily = [];
-      if (forecastData?.forecast?.daily) {
+      let forecastSource = "tempest";
+
+      if (isNoaa) {
+        let lat = this.config.latitude !== undefined && this.config.latitude !== null ? Number(this.config.latitude) : null;
+        let lon = this.config.longitude !== undefined && this.config.longitude !== null ? Number(this.config.longitude) : null;
+
+        if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) {
+          if (typeof forecastData?.latitude === "number" && typeof forecastData?.longitude === "number") {
+            lat = forecastData.latitude;
+            lon = forecastData.longitude;
+          } else {
+            try {
+              const stationInfoUrl = \`https://swd.weatherflow.com/swd/rest/stations/\${stationId}?token=\${token}\`;
+              const stationMeta = await this.httpGetJson(stationInfoUrl);
+              const st = stationMeta?.stations?.[0];
+              if (st && typeof st.latitude === "number" && typeof st.longitude === "number") {
+                lat = st.latitude;
+                lon = st.longitude;
+              }
+            } catch (metaErr) {
+              console.warn("[MMM-TempestWx] Could not fetch station coordinates for NOAA:", metaErr.message);
+            }
+          }
+        }
+
+        if (typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
+          try {
+            console.log(\`[MMM-TempestWx] Fetching NOAA 7-day forecast for coordinates: \${lat}, \${lon}\`);
+            forecastDaily = await this.fetchNoaaForecast(lat, lon);
+            if (forecastDaily && forecastDaily.length > 0) {
+              forecastSource = "NOAA";
+              console.log(\`[MMM-TempestWx] Successfully retrieved NOAA 7-day forecast (\${forecastDaily.length} days).\`);
+            }
+          } catch (noaaErr) {
+            console.warn(\`[MMM-TempestWx] NOAA forecast error: \${noaaErr.message}. Falling back to Tempest forecast.\`);
+          }
+        } else {
+          console.warn("[MMM-TempestWx] Coordinates unavailable for NOAA forecast. Falling back to Tempest forecast.");
+        }
+      }
+
+      // Fallback to Tempest Better Forecast if daily is still empty
+      if (forecastDaily.length === 0 && forecastData?.forecast?.daily) {
         const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
         forecastDaily = forecastData.forecast.daily.slice(0, 7).map((d, i) => {
           const date = new Date(d.day_start_local * 1000);
@@ -1416,12 +1469,14 @@ module.exports = NodeHelper.create({
           return {
             day_name: i === 0 ? "Today" : i === 1 ? "Tomorrow" : days[date.getDay()],
             conditions: d.conditions || "Partly Cloudy",
+            icon: d.icon || "partly-cloudy",
             air_temp_high: Number(high),
             air_temp_low: Number(low),
             precip_probability: d.precip_probability || 0,
             wind_avg: d.wind_avg || 0
           };
         });
+        forecastSource = "tempest";
       }
 
       // Extract hourly wind and telemetry trends
@@ -1457,7 +1512,8 @@ module.exports = NodeHelper.create({
         station_name: obsData.station_name,
         observation: observation,
         forecast_daily: forecastDaily,
-        forecast_hourly: forecastHourly
+        forecast_hourly: forecastHourly,
+        forecast_source: forecastSource
       });
     } catch (error) {
       console.error("[MMM-TempestWx] API fetch error:", error.message || error);
@@ -1472,6 +1528,165 @@ module.exports = NodeHelper.create({
         url: obsUrl
       });
     }
+  },
+
+  /**
+   * Fetch 7-day forecast from NOAA National Weather Service (api.weather.gov)
+   */
+  fetchNoaaForecast: async function (latitude, longitude) {
+    if (typeof latitude !== "number" || typeof longitude !== "number" || isNaN(latitude) || isNaN(longitude)) {
+      throw new Error("Invalid coordinates for NOAA: lat=" + latitude + ", lon=" + longitude);
+    }
+
+    const latStr = latitude.toFixed(4);
+    const lonStr = longitude.toFixed(4);
+    const pointsUrl = \`https://api.weather.gov/points/\${latStr},\${lonStr}\`;
+
+    const pointsData = await this.httpGetJson(pointsUrl);
+    if (!pointsData?.properties?.forecast) {
+      throw new Error("No forecast URL returned from NOAA points API for " + latStr + "," + lonStr);
+    }
+
+    const forecastUrl = pointsData.properties.forecast;
+    const forecastData = await this.httpGetJson(forecastUrl);
+    return this.parseNoaaForecastDaily(forecastData);
+  },
+
+  /**
+   * Parse NOAA National Weather Service forecast periods into standardized DailyForecast array
+   */
+  parseNoaaForecastDaily: function (forecastData) {
+    const periods = forecastData?.properties?.periods || [];
+    if (!periods.length) return [];
+
+    const daysMap = new Map();
+    const daysOrder = [];
+
+    for (const p of periods) {
+      const dateKey = (p.startTime || "").split("T")[0];
+      if (!dateKey) continue;
+
+      if (!daysMap.has(dateKey)) {
+        if (daysOrder.length >= 7) continue;
+        daysOrder.push(dateKey);
+        daysMap.set(dateKey, {
+          dateKey: dateKey,
+          daytime: null,
+          nighttime: null,
+          periods: []
+        });
+      }
+      const entry = daysMap.get(dateKey);
+      entry.periods.push(p);
+      if (p.isDaytime) {
+        entry.daytime = p;
+      } else {
+        entry.nighttime = p;
+      }
+    }
+
+    const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    return daysOrder.map((dateKey, index) => {
+      const entry = daysMap.get(dateKey);
+      const dayPeriod = entry.daytime;
+      const nightPeriod = entry.nighttime;
+      const primaryPeriod = dayPeriod || nightPeriod || entry.periods[0];
+
+      const d = new Date(primaryPeriod.startTime);
+      const dayName = index === 0 ? "Today" : index === 1 ? "Tomorrow" : weekdayNames[d.getDay()];
+      const dateLabel = \`\${d.getMonth() + 1}/\${d.getDate()}\`;
+
+      const toCelsius = (temp, unit) => {
+        if (typeof temp !== "number") return 20;
+        return unit === "C" ? temp : (temp - 32) * (5 / 9);
+      };
+
+      let highC = dayPeriod ? toCelsius(dayPeriod.temperature, dayPeriod.temperatureUnit) : null;
+      let lowC = nightPeriod ? toCelsius(nightPeriod.temperature, nightPeriod.temperatureUnit) : null;
+
+      if (highC === null && lowC !== null) {
+        highC = lowC + 4;
+      } else if (lowC === null && highC !== null) {
+        lowC = highC - 5;
+      } else if (highC === null && lowC === null) {
+        highC = 20;
+        lowC = 12;
+      }
+
+      if (lowC > highC) {
+        const tmp = highC;
+        highC = lowC;
+        lowC = tmp;
+      }
+
+      const conditions = (dayPeriod?.shortForecast || nightPeriod?.shortForecast || "Clear").trim();
+      const icon = this.mapNoaaIcon(dayPeriod?.icon || nightPeriod?.icon, conditions, !dayPeriod);
+
+      const precipProb = Math.max(
+        dayPeriod?.probabilityOfPrecipitation?.value || 0,
+        nightPeriod?.probabilityOfPrecipitation?.value || 0
+      );
+
+      const windSpeedStr = dayPeriod?.windSpeed || nightPeriod?.windSpeed || "5 mph";
+      const windMatches = windSpeedStr.match(/\\d+/g);
+      let windMph = 5;
+      if (windMatches && windMatches.length > 0) {
+        const nums = windMatches.map(Number);
+        windMph = nums.reduce((a, b) => a + b, 0) / nums.length;
+      }
+      const windAvgMs = windMph * 0.44704;
+
+      const windDir = dayPeriod?.windDirection || nightPeriod?.windDirection || "W";
+
+      return {
+        day_start_local: Math.floor(d.getTime() / 1000),
+        day_name: dayName,
+        date_label: dateLabel,
+        conditions: conditions,
+        icon: icon,
+        air_temp_high: Number(highC.toFixed(1)),
+        air_temp_low: Number(lowC.toFixed(1)),
+        precip_probability: precipProb,
+        wind_avg: Number(windAvgMs.toFixed(1)),
+        wind_direction_cardinal: windDir,
+        uv: 5
+      };
+    });
+  },
+
+  /**
+   * Map NOAA weather conditions and icon URLs to module vector glyph keys
+   */
+  mapNoaaIcon: function (iconUrl, conditions, isNight) {
+    const text = ((iconUrl || "") + " " + (conditions || "")).toLowerCase();
+    const night = isNight || text.includes("/night/") || text.includes("night") || text.includes("moon");
+
+    if (text.includes("tsra") || text.includes("thunder") || text.includes("lightning") || text.includes("tstorm")) {
+      return "thunderstorm";
+    }
+    if (text.includes("snow") || text.includes("flurries") || text.includes("blizzard") || text.includes("sleet")) {
+      return "snow";
+    }
+    if (text.includes("rain") || text.includes("shower") || text.includes("drizzle")) {
+      return night ? "rain-night" : "rain";
+    }
+    if (text.includes("fog") || text.includes("mist") || text.includes("haze") || text.includes("smoke")) {
+      return "fog";
+    }
+    if (text.includes("wind") || text.includes("breezy")) {
+      return "windy";
+    }
+    if (text.includes("bkn") || text.includes("ovc") || text.includes("cloud") || text.includes("overcast")) {
+      return night ? "cloudy-night" : "cloudy";
+    }
+    if (text.includes("sct") || text.includes("few") || text.includes("partly")) {
+      return night ? "partly-cloudy-night" : "partly-cloudy";
+    }
+    if (text.includes("skc") || text.includes("clear") || text.includes("sunny")) {
+      return night ? "clear-night" : "clear";
+    }
+    return night ? "clear-night" : "partly-cloudy";
   },
 
   degreesToCardinal: function (deg) {
@@ -2318,6 +2533,21 @@ export function getMmmTempestWxCss(): string {
 .xxsmall { font-size: 9px !important; }
 .mt-4 { margin-top: 16px !important; }
 .ml-2 { margin-left: 8px !important; }
+
+.tempest-provider-tag {
+  display: inline-block !important;
+  font-size: 10px !important;
+  font-weight: 600 !important;
+  text-transform: uppercase !important;
+  letter-spacing: 0.5px !important;
+  padding: 1px 7px !important;
+  border-radius: 9999px !important;
+  background: rgba(56, 189, 248, 0.15) !important;
+  color: #38bdf8 !important;
+  border: 1px solid rgba(56, 189, 248, 0.3) !important;
+  margin-left: 6px !important;
+  vertical-align: middle !important;
+}
 `;
 }
 
@@ -2387,7 +2617,7 @@ Navigate to your MagicMirror \`modules\` directory on your Raspberry Pi or host 
 
 \`\`\`bash
 cd ~/MagicMirror/modules
-git clone https://github.com/tempestwx/MMM-TempestWx.git
+git clone https://github.com/BillFoldin/MMM-TempestWx.git
 \`\`\`
 
 > **Note:** Zero \`npm install\` is required for the MagicMirror module! The module runs directly on standard Node.js without third-party dependencies.
@@ -2405,6 +2635,7 @@ Add the module configuration block to your MagicMirror \`config/config.js\` file
   config: {
     stationId: "${config.stationId || 'YOUR_TEMPEST_STATION_ID'}",
     token: "${config.token || 'YOUR_TEMPEST_PERSONAL_USE_TOKEN'}",
+    weatherProvider: "${config.weatherProvider || 'tempest'}", // "tempest" or "NOAA"
     units: "${config.units}",            // "imperial" or "metric"
     pressureUnit: "${config.pressureUnit}",        // "inHg", "hPa", or "mb"
     updateInterval: 60 * 1000,      // Polling interval in ms (60 seconds)
@@ -2424,6 +2655,9 @@ Add the module configuration block to your MagicMirror \`config/config.js\` file
 | :--- | :--- | :--- | :--- |
 | \`stationId\` | \`string\` \| \`number\` | *Required* | Your WeatherFlow Tempest Station ID |
 | \`token\` | \`string\` | *Required* | Your Personal Use Access Token from Tempest |
+| \`weatherProvider\` | \`string\` | \`"tempest"\` | 7-day forecast source: \`"tempest"\` (WeatherFlow Better Forecast) or \`"NOAA"\` (api.weather.gov NWS) |
+| \`latitude\` | \`number\` | \`null\` | Optional GPS latitude override for NOAA (auto-detected from station if omitted) |
+| \`longitude\` | \`number\` | \`null\` | Optional GPS longitude override for NOAA (auto-detected from station if omitted) |
 | \`units\` | \`string\` | \`"imperial"\` | \`"imperial"\` (°F, mph, in) or \`"metric"\` (°C, km/h, mm) |
 | \`pressureUnit\` | \`string\` | \`"inHg"\` | Barometric pressure display unit: \`"inHg"\`, \`"hPa"\`, or \`"mb"\` |
 | \`updateInterval\` | \`number\` | \`60000\` | Frequency to fetch new observations in milliseconds (default: 60s) |
@@ -2433,6 +2667,15 @@ Add the module configuration block to your MagicMirror \`config/config.js\` file
 | \`showDewPoint\` | \`boolean\` | \`true\` | Displays calculated dew point in telemetry metrics |
 | \`showTrendArrows\` | \`boolean\` | \`true\` | Displays rising (↗), steady (→), or falling (↘) barometric trend |
 | \`animationSpeed\` | \`number\` | \`0\` | Milliseconds for module refresh. Set to \`0\` to prevent screen flashing |
+
+---
+
+## 7-Day Extended Forecast Providers (\`tempest\` vs \`NOAA\`)
+
+You can select your preferred data source for the 7-day extended forecast using the \`weatherProvider\` setting:
+
+- **\`weatherProvider: "tempest"\`** *(default)*: Uses WeatherFlow's proprietary machine-learning Better Forecast engine tailored to your hyper-local station microclimate.
+- **\`weatherProvider: "NOAA"\`**: Fetches official 7-day forecast periods directly from the **US National Weather Service** (api.weather.gov) based on your station's GPS coordinates. Current observation metrics (live temperature, wind speed/direction, barometer, rain, lightning strikes, solar/UV) continue streaming live from your Tempest station. If NOAA experiences transient outages or the station is outside the US, the module gracefully falls back to Tempest data.
 
 ---
 

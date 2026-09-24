@@ -53,6 +53,7 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
   config: {
     stationId: "YOUR_STATION_ID",
     token: "YOUR_TEMPEST_TOKEN",
+    weatherProvider: "tempest", // "tempest" or "NOAA"
     units: "imperial",            // "imperial" or "metric"
     pressureUnit: "inHg",        // "inHg", "hPa", or "mb"
     updateInterval: 60 * 1000,      // Polling interval in ms (60 seconds)
@@ -72,6 +73,9 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
 | :--- | :--- | :--- | :--- |
 | `stationId` | `string` | `number` | *Required* | Your WeatherFlow Tempest Station ID |
 | `token` | `string` | *Required* | Your Personal Use Access Token from Tempest |
+| `weatherProvider` | `string` | `"tempest"` | 7-day forecast source: `"tempest"` (WeatherFlow Better Forecast) or `"NOAA"` (api.weather.gov NWS) |
+| `latitude` | `number` | `null` | Optional GPS latitude override for NOAA (auto-detected from station if omitted) |
+| `longitude` | `number` | `null` | Optional GPS longitude override for NOAA (auto-detected from station if omitted) |
 | `units` | `string` | `"imperial"` | `"imperial"` (°F, mph, in) or `"metric"` (°C, km/h, mm) |
 | `pressureUnit` | `string` | `"inHg"` | Barometric pressure display unit: `"inHg"`, `"hPa"`, or `"mb"` |
 | `updateInterval` | `number` | `60000` | Frequency to fetch new observations in milliseconds (default: 60s) |
@@ -84,11 +88,69 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
 
 ---
 
+## 7-Day Extended Forecast Providers (`tempest` vs `NOAA`)
+
+You can select your preferred data source for the 7-day extended forecast using the `weatherProvider` setting:
+
+- **`weatherProvider: "tempest"`** *(default)*: Uses WeatherFlow's proprietary machine-learning Better Forecast engine tailored to your hyper-local station microclimate.
+- **`weatherProvider: "NOAA"`**: Fetches official 7-day forecast periods directly from the **US National Weather Service** (api.weather.gov) based on your station's GPS coordinates. Current observation metrics (live temperature, wind speed/direction, barometer, rain, lightning strikes, solar/UV) continue streaming live from your Tempest station. If NOAA experiences transient outages or the station is outside the US, the module gracefully falls back to Tempest data.
+
+---
+
 ## Obtaining Your Tempest Station ID & Token
 
 1. Sign in to your Tempest account at [tempestwx.com](https://tempestwx.com/).
 2. Go to **Settings > Stations** and select your station. Your numeric **Station ID** will be visible in the page address or station details.
 3. Go to **Settings > Data Authorizations** and select **Create Token** to generate a Personal Access Token.
+
+---
+
+## Touchscreen Interactive Modal
+
+When `showModalOnTouch: true` is configured, tapping the module anywhere opens a responsive overlay:
+
+1. **7-Day Extended Forecast Cards**:
+   - High and low temperature indicators with calibrated thermal ranges.
+   - Sky conditions icon (Sun/Moon/Clouds/Rain/Snow).
+   - Precipitation probability percentage.
+2. **24-Hour Telemetry Graphs with Interactive Scrubber**:
+   - **Temperature**: Continuous diurnal curve with ambient temperature and real-feel index.
+   - **Relative Humidity**: Saturation line with human comfort zone bounds (35% - 60%).
+   - **Wind Speed & Direction**: Wind average line, peak gust peaks, and rotational compass arrow vector glyphs.
+   - **UV Index**: Daily solar ultraviolet curve with danger classification.
+   - **Rain Accumulation**: Hourly rain accumulation bars and probability envelope.
+
+---
+
+## Preventing Screen Flashes on Raspberry Pi
+
+Older MagicMirror weather modules trigger a noticeable screen blink or fade every time they poll for updates. **MMM-TempestWx** prevents this:
+
+1. Set `animationSpeed: 0` in `config.js`.
+2. The module automatically activates `updateCardInPlace()`, surgically updating only the changed text values and SVG glyphs in the live DOM. The outer module container remains static, preserving a seamless smart mirror display.
+
+---
+
+## Troubleshooting
+
+### Error: "No modules/MMM-TempestWx/MMM-TempestWx.js found"
+
+MagicMirror requires the directory name and JavaScript filename to match exactly:
+- Directory: `MagicMirror/modules/MMM-TempestWx`
+- File: `MagicMirror/modules/MMM-TempestWx/MMM-TempestWx.js`
+
+If you extracted a zip archive, ensure the files are not nested two levels deep (e.g., `MMM-TempestWx/MMM-TempestWx/MMM-TempestWx.js`). Move the files up one level if necessary:
+
+```bash
+cd ~/MagicMirror/modules
+mv MMM-TempestWx/MMM-TempestWx/* MMM-TempestWx/
+rmdir MMM-TempestWx/MMM-TempestWx
+```
+
+### Zero Dependencies & No package.json Conflicts
+
+MagicMirror modules run as standard CommonJS modules. This module uses pure Node.js built-in APIs (`https`) and has **zero third-party npm dependencies**. No `package.json` file is needed or included in the module directory, preventing any ESM/CommonJS conflicts (`"require is not defined in ES module scope"`).
+
 ---
 
 ## File Structure
@@ -98,7 +160,6 @@ MMM-TempestWx/
 ├── MMM-TempestWx.js        # MagicMirror front-end module definition & in-place DOM updates
 ├── node_helper.js          # Built-in Node.js https proxy for Tempest REST API
 ├── MMM-TempestWx.css       # Two-way mirror high-contrast styling & modal layouts
-├── package.json            # CommonJS package manifest
 ├── README.md               # Documentation & setup guide
 ├── src/                    # Web simulator & React development workspace
 │   ├── components/         # React simulator components & SVG icon library
@@ -106,7 +167,23 @@ MMM-TempestWx/
 │   └── types/              # TypeScript interfaces
 └── scripts/
     └── sync-module-files.ts # Auto-synchronizes standalone module files from source
-'''
+```
+
+---
+
+## Local Development & Simulator
+
+To preview the module in your browser without a Raspberry Pi:
+
+```bash
+# Install development dependencies
+npm install
+
+# Start development server
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to access the interactive MagicMirror simulator, switch between sample weather stations (including night observation presets), test units, and customize styling.
 
 ---
 

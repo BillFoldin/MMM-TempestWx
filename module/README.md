@@ -35,7 +35,7 @@ Navigate to your MagicMirror `modules` directory on your Raspberry Pi or host sy
 
 ```bash
 cd ~/MagicMirror/modules
-git clone https://github.com/tempestwx/MMM-TempestWx.git
+git clone https://github.com/BillFoldin/MMM-TempestWx.git
 ```
 
 > **Note:** Zero `npm install` is required for the MagicMirror module! The module runs directly on standard Node.js without third-party dependencies.
@@ -53,6 +53,7 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
   config: {
     stationId: "YOUR_STATION_ID",
     token: "YOUR_TEMPEST_TOKEN",
+    weatherProvider: "tempest", // "tempest" or "NOAA"
     units: "imperial",            // "imperial" or "metric"
     pressureUnit: "inHg",        // "inHg", "hPa", or "mb"
     updateInterval: 60 * 1000,      // Polling interval in ms (60 seconds)
@@ -72,6 +73,9 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
 | :--- | :--- | :--- | :--- |
 | `stationId` | `string` | `number` | *Required* | Your WeatherFlow Tempest Station ID |
 | `token` | `string` | *Required* | Your Personal Use Access Token from Tempest |
+| `weatherProvider` | `string` | `"tempest"` | 7-day forecast source: `"tempest"` (WeatherFlow Better Forecast) or `"NOAA"` (api.weather.gov NWS) |
+| `latitude` | `number` | `null` | Optional GPS latitude override for NOAA (auto-detected from station if omitted) |
+| `longitude` | `number` | `null` | Optional GPS longitude override for NOAA (auto-detected from station if omitted) |
 | `units` | `string` | `"imperial"` | `"imperial"` (°F, mph, in) or `"metric"` (°C, km/h, mm) |
 | `pressureUnit` | `string` | `"inHg"` | Barometric pressure display unit: `"inHg"`, `"hPa"`, or `"mb"` |
 | `updateInterval` | `number` | `60000` | Frequency to fetch new observations in milliseconds (default: 60s) |
@@ -81,6 +85,15 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
 | `showDewPoint` | `boolean` | `true` | Displays calculated dew point in telemetry metrics |
 | `showTrendArrows` | `boolean` | `true` | Displays rising (↗), steady (→), or falling (↘) barometric trend |
 | `animationSpeed` | `number` | `0` | Milliseconds for module refresh. Set to `0` to prevent screen flashing |
+
+---
+
+## 7-Day Extended Forecast Providers (`tempest` vs `NOAA`)
+
+You can select your preferred data source for the 7-day extended forecast using the `weatherProvider` setting:
+
+- **`weatherProvider: "tempest"`** *(default)*: Uses WeatherFlow's proprietary machine-learning Better Forecast engine tailored to your hyper-local station microclimate.
+- **`weatherProvider: "NOAA"`**: Fetches official 7-day forecast periods directly from the **US National Weather Service** (api.weather.gov) based on your station's GPS coordinates. Current observation metrics (live temperature, wind speed/direction, barometer, rain, lightning strikes, solar/UV) continue streaming live from your Tempest station. If NOAA experiences transient outages or the station is outside the US, the module gracefully falls back to Tempest data.
 
 ---
 

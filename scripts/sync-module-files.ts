@@ -6,6 +6,7 @@ import path from 'path';
 const config: ModuleConfig = {
   stationId: 'YOUR_STATION_ID',
   token: 'YOUR_TEMPEST_TOKEN',
+  weatherProvider: 'tempest',
   units: 'imperial',
   pressureUnit: 'inHg',
   updateIntervalSeconds: 60,
