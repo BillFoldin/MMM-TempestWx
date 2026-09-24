@@ -110,12 +110,24 @@ Module.register("MMM-TempestWx", {
 
     const windSpeed = isImperial ? Math.round(obs.wind_avg * 2.23694) : Math.round(obs.wind_avg * 3.6);
     const windUnit = isImperial ? "mph" : "km/h";
+    const gustSpeed = isImperial ? Math.round(obs.wind_gust * 2.23694) : Math.round(obs.wind_gust * 3.6);
+    const rainStr = isImperial
+      ? (obs.precip_accum_local_day * 0.0393701).toFixed(2) + " in"
+      : obs.precip_accum_local_day.toFixed(1) + " mm";
 
     // Update text elements safely without replacing outer DOM
-    const tempEl = card.querySelector(".metric-temp-val");
-    if (tempEl) tempEl.textContent = String(tempVal);
+    const heroTempEl = card.querySelector(".hero-temp-val") || card.querySelector(".metric-temp-val");
+    if (heroTempEl) heroTempEl.textContent = String(tempVal);
 
-    const feelsEl = card.querySelector(".metric-feels-val");
+    const conditionTextEl = card.querySelector(".hero-condition-text");
+    if (conditionTextEl) conditionTextEl.textContent = obs.conditions || "Partly Cloudy";
+
+    const conditionIconEl = card.querySelector(".hero-condition-icon");
+    if (conditionIconEl) {
+      conditionIconEl.innerHTML = this.getWeatherIconSvg(obs.icon, obs.conditions);
+    }
+
+    const feelsEl = card.querySelector(".hero-feels-val") || card.querySelector(".metric-feels-val");
     if (feelsEl) feelsEl.textContent = "Feels " + feelsLikeVal + "°";
 
     const humEl = card.querySelector(".metric-hum-val");
@@ -137,6 +149,14 @@ Module.register("MMM-TempestWx", {
       windArrowEl.style.transform = "rotate(" + (obs.wind_direction || 0) + "deg)";
     }
 
+    const windValEl = card.querySelector(".metric-wind-val");
+    if (windValEl) windValEl.textContent = String(windSpeed);
+
+    const windSubEl = card.querySelector(".metric-wind-sub");
+    if (windSubEl) {
+      windSubEl.textContent = (obs.wind_direction_cardinal || "") + (obs.wind_gust > obs.wind_avg + 1 ? " (G " + gustSpeed + ")" : "");
+    }
+
     const windTextEl = card.querySelector(".footer-wind-text");
     if (windTextEl) {
       windTextEl.textContent = (obs.wind_direction_cardinal || "") + " " + windSpeed + " " + windUnit;
@@ -150,7 +170,7 @@ Module.register("MMM-TempestWx", {
     const rainEl = card.querySelector(".rain-label");
     if (rainEl) {
       if (obs.precip_accum_local_day > 0) {
-        rainEl.textContent = " · " + obs.precip_accum_local_day.toFixed(1) + "mm rain";
+        rainEl.textContent = " · " + rainStr + " rain";
         rainEl.style.display = "inline";
       } else {
         rainEl.style.display = "none";
@@ -227,12 +247,19 @@ Module.register("MMM-TempestWx", {
 
     const windSpeed = isImperial ? Math.round(obs.wind_avg * 2.23694) : Math.round(obs.wind_avg * 3.6);
     const windUnit = isImperial ? "mph" : "km/h";
+    const gustSpeed = isImperial ? Math.round(obs.wind_gust * 2.23694) : Math.round(obs.wind_gust * 3.6);
+
+    const conditionsStr = obs.conditions || "Partly Cloudy";
+    const iconSvg = this.getWeatherIconSvg(obs.icon, conditionsStr);
 
     const hasLightning = obs.lightning_strike_count > 0 && obs.lightning_strike_last_distance > 0 && obs.lightning_strike_last_distance <= 45;
     const lightningDist = isImperial
       ? (obs.lightning_strike_last_distance * 0.621371).toFixed(1) + " mi"
       : obs.lightning_strike_last_distance.toFixed(1) + " km";
     const isSevereLightning = obs.lightning_strike_last_distance <= 10;
+    const rainStr = isImperial
+      ? (obs.precip_accum_local_day * 0.0393701).toFixed(2) + " in"
+      : obs.precip_accum_local_day.toFixed(1) + " mm";
 
     // Build Module HTML
     const moduleContainer = document.createElement("div");
@@ -262,25 +289,26 @@ Module.register("MMM-TempestWx", {
         ` : ""}
       </div>
 
-      <div class="tempest-metrics-grid">
-        <!-- Temperature -->
-        <div class="metric-item">
-          <div class="metric-label dimmed">
-            <svg class="tempest-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-              <path d="M14 14.76V3.5a2 2 0 0 0-4 0v11.26a4.5 4.5 0 1 0 4 0z" />
-              <path d="M12 9v5" stroke-width="2" />
-              <circle cx="12" cy="17" r="1.8" fill="currentColor" />
-            </svg>
-            <span>TEMP</span>
+      <!-- HERO CENTERPIECE: Front and Center Temperature with Condition Icon -->
+      <div class="tempest-hero">
+        <div class="hero-temp-row">
+          <div class="hero-condition-icon">${iconSvg}</div>
+          <div class="hero-temp-display">
+            <span class="hero-temp-num hero-temp-val bright">${tempVal}</span><span class="hero-temp-deg dimmed">°</span>
           </div>
-          <div class="metric-value bright"><span class="large metric-temp-val">${tempVal}</span><span class="temp-degree">°</span></div>
-          ${this.config.showFeelsLike ? `<div class="metric-sub dimmed metric-feels-val">Feels ${feelsLikeVal}°</div>` : ""}
         </div>
+        <div class="hero-condition-sub">
+          <span class="hero-condition-text bright">${conditionsStr}</span>
+          ${this.config.showFeelsLike ? `<span class="hero-divider dimmed">·</span><span class="hero-feels-val dimmed">Feels ${feelsLikeVal}°</span>` : ""}
+        </div>
+      </div>
 
-        <!-- Relative Humidity -->
+      <!-- SECONDARY TELEMETRY GRID: Humidity, Pressure, Wind (Increased Font Sizes) -->
+      <div class="tempest-metrics-grid">
+        <!-- Humidity -->
         <div class="metric-item">
           <div class="metric-label dimmed">
-            <svg class="tempest-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <svg class="tempest-icon" viewBox="0 0 24 24" fill="none" stroke="#22d3ee" stroke-width="1.8">
               <path d="M12 2.69l5.66 5.66a8 8 0 1 1-11.31 0z" />
               <path d="M7.5 13.8c1.2-1.5 2.8-1.8 4.5-1.2 1.7.6 3.2.4 4.5-.8" stroke-width="1.4" opacity="0.75" />
             </svg>
@@ -293,7 +321,7 @@ Module.register("MMM-TempestWx", {
         <!-- Barometric Pressure -->
         <div class="metric-item">
           <div class="metric-label dimmed">
-            <svg class="tempest-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <svg class="tempest-icon" viewBox="0 0 24 24" fill="none" stroke="#34d399" stroke-width="1.8">
               <circle cx="12" cy="12" r="9" />
               <line x1="12" y1="4.5" x2="12" y2="6.5" opacity="0.5" stroke-width="1.5" />
               <line x1="19.5" y1="12" x2="17.5" y2="12" opacity="0.5" stroke-width="1.5" />
@@ -303,21 +331,28 @@ Module.register("MMM-TempestWx", {
             </svg>
             <span>PRESSURE</span>
           </div>
-          <div class="metric-value bright"><span class="medium metric-pressure-val">${pressureStr}</span> <span class="p-unit xsmall">${pUnit}</span></div>
+          <div class="metric-value bright"><span class="large metric-pressure-val">${pressureStr}</span> <span class="p-unit xsmall">${pUnit}</span></div>
           <div class="metric-sub dimmed metric-trend-val"><span class="trend-icon">${trendIcon}</span> ${obs.pressure_trend}</div>
+        </div>
+
+        <!-- Wind Vector -->
+        <div class="metric-item">
+          <div class="metric-label dimmed">
+            <svg class="tempest-icon wind-arrow" style="transform: rotate(${obs.wind_direction}deg);" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="2">
+              <path d="M12 19V5M5 12l7-7 7 7"/>
+            </svg>
+            <span>WIND</span>
+          </div>
+          <div class="metric-value bright"><span class="large metric-wind-val">${windSpeed}</span> <span class="p-unit xsmall">${windUnit}</span></div>
+          <div class="metric-sub dimmed metric-wind-sub">${obs.wind_direction_cardinal || ""}${obs.wind_gust > obs.wind_avg + 1 ? ` (G ${gustSpeed})` : ""}</div>
         </div>
       </div>
 
-      <div class="tempest-footer dimmed xsmall">
-        <div class="footer-wind">
-          <svg class="wind-arrow" style="transform: rotate(${obs.wind_direction}deg);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-            <path d="M12 19V5M5 12l7-7 7 7"/>
-          </svg>
-          <span class="footer-wind-text">${obs.wind_direction_cardinal} ${windSpeed} ${windUnit}</span>
-        </div>
+      <!-- AUXILIARY FOOTER -->
+      <div class="tempest-footer dimmed">
         <div class="footer-aux">
-          <span class="uv-label">UV ${(obs.uv || 0).toFixed(1)}</span>
-          <span class="rain-label"${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>${obs.precip_accum_local_day > 0 ? ` · ${obs.precip_accum_local_day.toFixed(1)}mm rain` : ""}</span>
+          <span class="uv-label bright">UV ${(obs.uv || 0).toFixed(1)}</span>
+          <span class="rain-label"${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>${obs.precip_accum_local_day > 0 ? ` · ${rainStr} rain` : ""}</span>
         </div>
       </div>
     `;

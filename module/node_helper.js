@@ -172,7 +172,9 @@ module.exports = NodeHelper.create({
         lightning_strike_count: Number(lightningCount),
         battery: Number(battery),
         feels_like: Number(forecastData?.current_conditions?.feels_like ?? airTemp),
-        dew_point: Number(dewPoint)
+        dew_point: Number(dewPoint),
+        conditions: forecastData?.current_conditions?.conditions || (forecastData?.forecast?.daily?.[0]?.conditions) || "Clear",
+        icon: forecastData?.current_conditions?.icon || (forecastData?.forecast?.daily?.[0]?.icon) || "clear-day"
       };
 
       // Extract 7-day forecast

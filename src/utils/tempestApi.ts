@@ -150,6 +150,8 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
     battery,
     feels_like: feelsLike,
     dew_point: Number(dewPoint.toFixed(1)),
+    conditions: forecastData?.current_conditions?.conditions || forecastData?.forecast?.daily?.[0]?.conditions || 'Clear',
+    icon: mapWeatherFlowIcon(forecastData?.current_conditions?.icon || forecastData?.forecast?.daily?.[0]?.icon || 'clear-day'),
   };
 
   let daily: DailyForecast[] = [];

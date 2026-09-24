@@ -26,6 +26,8 @@ export interface TempestObservation {
   battery: number; // Volts
   feels_like: number; // Raw Celsius
   dew_point: number; // Raw Celsius
+  conditions?: string; // Current conditions description (e.g., 'Partly Cloudy')
+  icon?: string; // Icon identifier (e.g., 'partly-cloudy')
 }
 
 export interface DailyForecast {

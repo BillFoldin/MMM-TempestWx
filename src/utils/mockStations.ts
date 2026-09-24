@@ -235,6 +235,8 @@ export function getPresetStationData(preset: StationPreset): TempestStationData 
     battery: 2.81, // Healthy Tempest supercapacitor voltage (2.4-2.8V)
     feels_like: preset.tempC + (preset.windMs > 5 ? -1.2 : 0.8),
     dew_point: Number(dewPoint.toFixed(1)),
+    conditions: preset.condition,
+    icon: preset.conditionIcon,
   };
 
   return {

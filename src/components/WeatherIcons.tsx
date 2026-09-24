@@ -119,12 +119,14 @@ export const ModernWindVectorIcon: React.FC<{ degrees: number; size?: number; cl
 /**
  * Modern minimalist condition icons
  */
-export const WeatherConditionIcon: React.FC<{ icon: string; size?: number; className?: string }> = ({
+export const WeatherConditionIcon: React.FC<{ icon?: string; condition?: string; size?: number; className?: string }> = ({
   icon,
+  condition,
   size = 28,
   className = 'text-white',
 }) => {
-  switch (icon) {
+  const iconKey = (icon || condition || 'partly-cloudy').toLowerCase();
+  switch (iconKey) {
     case 'clear':
     case 'sunny':
       return (
