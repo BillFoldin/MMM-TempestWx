@@ -55,7 +55,8 @@ Add the module to your `config/config.js` file:
     autoCloseModalSeconds: 30,      // Auto close modal after 30s
     showFeelsLike: true,            // Show feels like temp
     showDewPoint: true,             // Show dew point
-    showTrendArrows: true           // Show pressure rising/falling indicator
+    showTrendArrows: true,          // Show pressure rising/falling indicator
+    animationSpeed: 0               // 0 = Instant in-place updates with zero screen flash/blink (recommended for Raspberry Pi)
   }
 }
 ```

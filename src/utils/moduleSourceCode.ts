@@ -21,7 +21,8 @@ Module.register("MMM-TempestWx", {
     showFeelsLike: true,        // Show "Feels like" temperature
     showDewPoint: true,         // Show dew point
     showTrendArrows: true,      // Show barometric pressure trend arrow (↗, →, ↘)
-    stationName: ""             // Optional custom title (defaults to Tempest station name)
+    stationName: "",            // Optional custom title (defaults to Tempest station name)
+    animationSpeed: 0           // 0ms animation: prevents screen blink/flash on Raspberry Pi during polling
   },
 
   getStyles: function () {
@@ -44,7 +45,7 @@ Module.register("MMM-TempestWx", {
     this.loadingTimeout = setTimeout(() => {
       if (!this.loaded && !this.errorMessage) {
         this.errorMessage = "TempestWx: Waiting for node_helper.js. Check terminal/PM2 logs or verify node_helper.js is inside modules/MMM-TempestWx/";
-        this.updateDom(300);
+        this.updateDom(this.config.animationSpeed || 0);
       }
     }, 12000);
   },
@@ -65,16 +66,122 @@ Module.register("MMM-TempestWx", {
 
     if (notification === "TEMPEST_DATA") {
       Log.info("[MMM-TempestWx] Successfully received Tempest observation payload.");
+      const wasLoaded = this.loaded;
+      const hadError = this.errorMessage !== null;
       this.loaded = true;
       this.stationData = payload;
       this.errorMessage = null;
-      this.updateDom(300);
+
+      // In-place DOM update: if the card is already rendered on screen, update metrics in-place.
+      // This completely avoids DOM recreation, style recalculation, and screen flashing on Raspberry Pi.
+      if (wasLoaded && !hadError && this.updateCardInPlace()) {
+        return;
+      }
+      this.updateDom(this.config.animationSpeed || 0);
     } else if (notification === "TEMPEST_ERROR") {
       const errText = typeof payload === "object" ? (payload.message + (payload.url ? " [URL: " + payload.url + "]" : "")) : payload;
       Log.error("[MMM-TempestWx] Error from node_helper: " + errText);
       this.errorMessage = payload;
-      this.updateDom(300);
+      this.updateDom(this.config.animationSpeed || 0);
     }
+  },
+
+  updateCardInPlace: function () {
+    const root = document.getElementById(this.identifier) || document.querySelector(".mmm-tempest-wx-wrapper");
+    if (!root) return false;
+    const card = root.querySelector(".tempest-card");
+    if (!card || !this.stationData || !this.stationData.observation) return false;
+
+    const obs = this.stationData.observation;
+    const isImperial = this.config.units === "imperial";
+
+    // Format metrics
+    const tempVal = isImperial ? Math.round((obs.air_temperature * 9) / 5 + 32) : Math.round(obs.air_temperature);
+    const feelsLikeVal = isImperial ? Math.round((obs.feels_like * 9) / 5 + 32) : Math.round(obs.feels_like);
+    const dewPointVal = isImperial ? Math.round((obs.dew_point * 9) / 5 + 32) : Math.round(obs.dew_point);
+    const humVal = Math.round(obs.relative_humidity);
+
+    let pressureStr = obs.barometric_pressure.toFixed(1);
+    let pUnit = this.config.pressureUnit;
+    if (pUnit === "inHg") {
+      pressureStr = (obs.barometric_pressure * 0.02952998).toFixed(2);
+    }
+
+    let trendIcon = "→";
+    if (obs.pressure_trend === "rising") trendIcon = "↗";
+    if (obs.pressure_trend === "falling") trendIcon = "↘";
+
+    const windSpeed = isImperial ? Math.round(obs.wind_avg * 2.23694) : Math.round(obs.wind_avg * 3.6);
+    const windUnit = isImperial ? "mph" : "km/h";
+
+    // Update text elements safely without replacing outer DOM
+    const tempEl = card.querySelector(".metric-temp-val");
+    if (tempEl) tempEl.textContent = String(tempVal);
+
+    const feelsEl = card.querySelector(".metric-feels-val");
+    if (feelsEl) feelsEl.textContent = "Feels " + feelsLikeVal + "°";
+
+    const humEl = card.querySelector(".metric-hum-val");
+    if (humEl) humEl.textContent = String(humVal);
+
+    const dewEl = card.querySelector(".metric-dew-val");
+    if (dewEl) dewEl.textContent = "Dew " + dewPointVal + "°";
+
+    const pressureEl = card.querySelector(".metric-pressure-val");
+    if (pressureEl) pressureEl.textContent = pressureStr;
+
+    const trendEl = card.querySelector(".metric-trend-val");
+    if (trendEl) {
+      trendEl.innerHTML = '<span class="trend-icon">' + trendIcon + '</span> ' + obs.pressure_trend;
+    }
+
+    const windArrowEl = card.querySelector(".wind-arrow");
+    if (windArrowEl) {
+      windArrowEl.style.transform = "rotate(" + (obs.wind_direction || 0) + "deg)";
+    }
+
+    const windTextEl = card.querySelector(".footer-wind-text");
+    if (windTextEl) {
+      windTextEl.textContent = (obs.wind_direction_cardinal || "") + " " + windSpeed + " " + windUnit;
+    }
+
+    const uvEl = card.querySelector(".uv-label");
+    if (uvEl) {
+      uvEl.textContent = "UV " + (obs.uv || 0).toFixed(1);
+    }
+
+    const rainEl = card.querySelector(".rain-label");
+    if (rainEl) {
+      if (obs.precip_accum_local_day > 0) {
+        rainEl.textContent = " · " + obs.precip_accum_local_day.toFixed(1) + "mm rain";
+        rainEl.style.display = "inline";
+      } else {
+        rainEl.style.display = "none";
+      }
+    }
+
+    const lightningContainer = card.querySelector(".lightning-container");
+    const hasLightning = obs.lightning_strike_count > 0 && obs.lightning_strike_last_distance > 0 && obs.lightning_strike_last_distance <= 45;
+    if (lightningContainer) {
+      if (hasLightning) {
+        const lightningDist = isImperial
+          ? (obs.lightning_strike_last_distance * 0.621371).toFixed(1) + " mi"
+          : obs.lightning_strike_last_distance.toFixed(1) + " km";
+        const isSevereLightning = obs.lightning_strike_last_distance <= 10;
+        lightningContainer.innerHTML = \`
+          <div class="tempest-lightning-alert \${isSevereLightning ? 'danger' : 'caution'}">
+            <span class="lightning-bolt">⚡</span>
+            <span class="alert-title">\${isSevereLightning ? 'WARNING: LIGHTNING' : 'LIGHTNING DETECTED'}: \${lightningDist} (\${obs.lightning_strike_count} strikes)</span>
+          </div>
+        \`;
+        lightningContainer.style.display = "block";
+      } else {
+        lightningContainer.innerHTML = "";
+        lightningContainer.style.display = "none";
+      }
+    }
+
+    return true;
   },
 
   getDom: function () {
@@ -149,12 +256,14 @@ Module.register("MMM-TempestWx", {
         <span class="tempest-touch-hint dimmed">Tap for Forecast</span>
       </div>
 
-      \${hasLightning ? \`
-        <div class="tempest-lightning-alert \${isSevereLightning ? 'danger' : 'caution'}">
-          <span class="lightning-bolt">⚡</span>
-          <span class="alert-title">\${isSevereLightning ? 'WARNING: LIGHTNING' : 'LIGHTNING DETECTED'}: \${lightningDist} (\${obs.lightning_strike_count} strikes)</span>
-        </div>
-      \` : ""}
+      <div class="lightning-container"\${hasLightning ? '' : ' style="display:none;"'}>
+        \${hasLightning ? \`
+          <div class="tempest-lightning-alert \${isSevereLightning ? 'danger' : 'caution'}">
+            <span class="lightning-bolt">⚡</span>
+            <span class="alert-title">\${isSevereLightning ? 'WARNING: LIGHTNING' : 'LIGHTNING DETECTED'}: \${lightningDist} (\${obs.lightning_strike_count} strikes)</span>
+          </div>
+        \` : ""}
+      </div>
 
       <div class="tempest-metrics-grid">
         <!-- Temperature -->
@@ -167,8 +276,8 @@ Module.register("MMM-TempestWx", {
             </svg>
             <span>TEMP</span>
           </div>
-          <div class="metric-value bright"><span class="large">\${tempVal}</span><span class="temp-degree">°</span></div>
-          \${this.config.showFeelsLike ? \`<div class="metric-sub dimmed">Feels \${feelsLikeVal}°</div>\` : ""}
+          <div class="metric-value bright"><span class="large metric-temp-val">\${tempVal}</span><span class="temp-degree">°</span></div>
+          \${this.config.showFeelsLike ? \`<div class="metric-sub dimmed metric-feels-val">Feels \${feelsLikeVal}°</div>\` : ""}
         </div>
 
         <!-- Relative Humidity -->
@@ -180,8 +289,8 @@ Module.register("MMM-TempestWx", {
             </svg>
             <span>HUMIDITY</span>
           </div>
-          <div class="metric-value bright"><span class="large">\${humVal}</span><span class="percent-sign">%</span></div>
-          \${this.config.showDewPoint ? \`<div class="metric-sub dimmed">Dew \${dewPointVal}°</div>\` : ""}
+          <div class="metric-value bright"><span class="large metric-hum-val">\${humVal}</span><span class="percent-sign">%</span></div>
+          \${this.config.showDewPoint ? \`<div class="metric-sub dimmed metric-dew-val">Dew \${dewPointVal}°</div>\` : ""}
         </div>
 
         <!-- Barometric Pressure -->
@@ -197,8 +306,8 @@ Module.register("MMM-TempestWx", {
             </svg>
             <span>PRESSURE</span>
           </div>
-          <div class="metric-value bright"><span class="medium">\${pressureStr}</span> <span class="p-unit xsmall">\${pUnit}</span></div>
-          <div class="metric-sub dimmed"><span class="trend-icon">\${trendIcon}</span> \${obs.pressure_trend}</div>
+          <div class="metric-value bright"><span class="medium metric-pressure-val">\${pressureStr}</span> <span class="p-unit xsmall">\${pUnit}</span></div>
+          <div class="metric-sub dimmed metric-trend-val"><span class="trend-icon">\${trendIcon}</span> \${obs.pressure_trend}</div>
         </div>
       </div>
 
@@ -207,11 +316,11 @@ Module.register("MMM-TempestWx", {
           <svg class="wind-arrow" style="transform: rotate(\${obs.wind_direction}deg);" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
             <path d="M12 19V5M5 12l7-7 7 7"/>
           </svg>
-          <span>\${obs.wind_direction_cardinal} \${windSpeed} \${windUnit}</span>
+          <span class="footer-wind-text">\${obs.wind_direction_cardinal} \${windSpeed} \${windUnit}</span>
         </div>
         <div class="footer-aux">
           <span class="uv-label">UV \${(obs.uv || 0).toFixed(1)}</span>
-          \${obs.precip_accum_local_day > 0 ? \`<span> · \${obs.precip_accum_local_day.toFixed(1)}mm rain</span>\` : ""}
+          <span class="rain-label"\${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>\${obs.precip_accum_local_day > 0 ? \` · \${obs.precip_accum_local_day.toFixed(1)}mm rain\` : ""}</span>
         </div>
       </div>
     \`;
@@ -2055,7 +2164,8 @@ Add the module to your \`config/config.js\` file:
     autoCloseModalSeconds: 30,      // Auto close modal after 30s
     showFeelsLike: true,            // Show feels like temp
     showDewPoint: true,             // Show dew point
-    showTrendArrows: true           // Show pressure rising/falling indicator
+    showTrendArrows: true,          // Show pressure rising/falling indicator
+    animationSpeed: 0               // 0 = Instant in-place updates with zero screen flash/blink (recommended for Raspberry Pi)
   }
 }
 \`\`\`

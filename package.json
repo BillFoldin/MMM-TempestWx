@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "tsx server.ts",
-    "sync:module": "tsx scripts/sync-module-files.ts",
-    "build": "tsx scripts/sync-module-files.ts && vite build",
+    "sync:module": "bun scripts/sync-module-files.ts",
+    "build": "bun scripts/sync-module-files.ts && vite build",
     "start": "tsx server.ts",
     "preview": "vite preview",
     "clean": "rm -rf dist server.js",
