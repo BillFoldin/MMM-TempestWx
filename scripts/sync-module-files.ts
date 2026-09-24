@@ -21,10 +21,11 @@ const config: ModuleConfig = {
 
 const rootDir = process.cwd();
 
-// Write root-level files so Git tracks MMM-TempestWx.js, node_helper.js, MMM-TempestWx.css
+// Write root-level files so Git tracks MMM-TempestWx.js, node_helper.js, MMM-TempestWx.css, and README.md
 fs.writeFileSync(path.join(rootDir, 'MMM-TempestWx.js'), getMmmTempestWxJs(), 'utf8');
 fs.writeFileSync(path.join(rootDir, 'node_helper.js'), getNodeHelperJs(), 'utf8');
 fs.writeFileSync(path.join(rootDir, 'MMM-TempestWx.css'), getMmmTempestWxCss(), 'utf8');
+fs.writeFileSync(path.join(rootDir, 'README.md'), getReadmeMd(config), 'utf8');
 
 // Also populate module/ directory
 const moduleDir = path.join(rootDir, 'module');
