@@ -35,7 +35,7 @@ Navigate to your MagicMirror `modules` directory on your Raspberry Pi or host sy
 
 ```bash
 cd ~/MagicMirror/modules
-git clone https://github.com/tempestwx/MMM-TempestWx.git
+git clone https://github.com/BillFoldin/MMM-TempestWx.git
 ```
 
 > **Note:** Zero `npm install` is required for the MagicMirror module! The module runs directly on standard Node.js without third-party dependencies.
@@ -106,23 +106,7 @@ MMM-TempestWx/
 │   └── types/              # TypeScript interfaces
 └── scripts/
     └── sync-module-files.ts # Auto-synchronizes standalone module files from source
-```
-
----
-
-## Local Development & Simulator
-
-To preview the module in your browser without a Raspberry Pi:
-
-```bash
-# Install development dependencies
-npm install
-
-# Start development server
-npm run dev
-```
-
-Open [http://localhost:3000](http://localhost:3000) to access the interactive MagicMirror simulator, switch between sample weather stations (including night observation presets), test units, and customize styling.
+'''
 
 ---
 
