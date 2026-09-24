@@ -9,6 +9,7 @@ import {
   getLightningThreat,
   formatLightningDistance,
   getUvCategory,
+  isNightTime,
 } from '../utils/tempestFormat.ts';
 import {
   ModernHumidityIcon,
@@ -57,8 +58,9 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
   };
 
   const trendSymbol = getTrendSymbol(observation.pressure_trend);
-  const currentCondition = observation.conditions || 'Partly Cloudy';
-  const currentIcon = observation.icon || 'partly-cloudy';
+  const isNight = isNightTime(observation);
+  const currentCondition = observation.conditions || (isNight ? 'Clear Night' : 'Partly Cloudy');
+  const currentIcon = observation.icon || (isNight ? 'clear-night' : 'partly-cloudy');
 
   return (
     <div
@@ -135,18 +137,24 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
 
       {/* HERO SECTION: Front & Center Temperature with Condition Icon (Massively Increased Font Size) */}
       <div className="my-3 sm:my-4 flex flex-col items-center justify-center text-center">
-        <div className="flex items-center justify-center gap-3.5 sm:gap-5">
+        <div className="flex items-center justify-center gap-4 sm:gap-6">
           {/* Current Condition Vector Icon */}
-          <div className="text-amber-400 shrink-0 drop-shadow-md flex items-center justify-center">
+          <div
+            className={`shrink-0 drop-shadow-md flex items-center justify-center pr-1 sm:pr-2 ${
+              isNight ? 'text-sky-200' : 'text-amber-400'
+            }`}
+          >
             <WeatherConditionIcon
               icon={currentIcon}
+              condition={currentCondition}
+              isNight={isNight}
               size={58}
-              className="w-13 h-13 sm:w-16 sm:h-16 stroke-[1.75]"
+              className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1.75] overflow-visible"
             />
           </div>
 
           {/* Front & Center Hero Temperature */}
-          <div className="flex items-baseline font-light tracking-tighter text-white">
+          <div className="flex items-baseline font-light tracking-tight text-white pl-0.5">
             <span className="text-6xl sm:text-7xl font-extralight font-sans tabular-nums leading-none">
               {formatTemp(observation.air_temperature, config.units, false)}
             </span>

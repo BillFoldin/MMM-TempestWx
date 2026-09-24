@@ -28,6 +28,38 @@ export function kmToMiles(km: number): number {
   return km * 0.621371;
 }
 
+/**
+ * Determine if current observation or time reflects nighttime
+ * Checks explicit icon flags ('night', 'moon', 'day', 'sun'),
+ * solar radiation, UV index, and station/local solar hours.
+ */
+export function isNightTime(observation?: {
+  icon?: string;
+  conditions?: string;
+  solar_radiation?: number;
+  uv?: number;
+} | null): boolean {
+  if (observation?.icon) {
+    const iconLower = observation.icon.toLowerCase();
+    if (iconLower.includes('night') || iconLower.includes('moon')) return true;
+    if (iconLower.includes('day') || iconLower.includes('sun')) return false;
+  }
+  if (observation?.conditions) {
+    const condLower = observation.conditions.toLowerCase();
+    if (condLower.includes('night') || condLower.includes('moon')) return true;
+  }
+  const currentHour = new Date().getHours();
+  if (observation && typeof observation.solar_radiation === 'number' && typeof observation.uv === 'number') {
+    if (observation.solar_radiation === 0 && observation.uv === 0 && (currentHour >= 18 || currentHour < 7)) {
+      return true;
+    }
+    if (observation.solar_radiation > 15 || observation.uv > 0.4) {
+      return false;
+    }
+  }
+  return currentHour < 6 || currentHour >= 20;
+}
+
 export function degreesToCardinal(deg: number): string {
   const directions = ['N', 'NNE', 'NE', 'ENE', 'E', 'ESE', 'SE', 'SSE', 'S', 'SSW', 'SW', 'WSW', 'W', 'WNW', 'NW', 'NNW'];
   const index = Math.round((deg % 360) / 22.5) % 16;

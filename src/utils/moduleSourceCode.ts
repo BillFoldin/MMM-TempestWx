@@ -122,12 +122,13 @@ Module.register("MMM-TempestWx", {
     const heroTempEl = card.querySelector(".hero-temp-val") || card.querySelector(".metric-temp-val");
     if (heroTempEl) heroTempEl.textContent = String(tempVal);
 
+    const isNight = this.isNightTime(obs);
     const conditionTextEl = card.querySelector(".hero-condition-text");
-    if (conditionTextEl) conditionTextEl.textContent = obs.conditions || "Partly Cloudy";
+    if (conditionTextEl) conditionTextEl.textContent = obs.conditions || (isNight ? "Clear Night" : "Partly Cloudy");
 
     const conditionIconEl = card.querySelector(".hero-condition-icon");
     if (conditionIconEl) {
-      conditionIconEl.innerHTML = this.getWeatherIconSvg(obs.icon, obs.conditions);
+      conditionIconEl.innerHTML = this.getWeatherIconSvg(obs.icon, obs.conditions, isNight);
     }
 
     const feelsEl = card.querySelector(".hero-feels-val") || card.querySelector(".metric-feels-val");
@@ -252,8 +253,9 @@ Module.register("MMM-TempestWx", {
     const windUnit = isImperial ? "mph" : "km/h";
     const gustSpeed = isImperial ? Math.round(obs.wind_gust * 2.23694) : Math.round(obs.wind_gust * 3.6);
 
-    const conditionsStr = obs.conditions || "Partly Cloudy";
-    const iconSvg = this.getWeatherIconSvg(obs.icon, conditionsStr);
+    const isNight = this.isNightTime(obs);
+    const conditionsStr = obs.conditions || (isNight ? "Clear Night" : "Partly Cloudy");
+    const iconSvg = this.getWeatherIconSvg(obs.icon, conditionsStr, isNight);
 
     const hasLightning = obs.lightning_strike_count > 0 && obs.lightning_strike_last_distance > 0 && obs.lightning_strike_last_distance <= 45;
     const lightningDist = isImperial
@@ -364,37 +366,66 @@ Module.register("MMM-TempestWx", {
     return wrapper;
   },
 
-  getWeatherIconSvg: function (iconName, conditions) {
+  isNightTime: function (obs) {
+    if (obs && obs.icon) {
+      const iconLower = String(obs.icon).toLowerCase();
+      if (iconLower.includes("night") || iconLower.includes("moon")) return true;
+      if (iconLower.includes("day") || iconLower.includes("sun")) return false;
+    }
+    if (obs && obs.conditions) {
+      const condLower = String(obs.conditions).toLowerCase();
+      if (condLower.includes("night") || condLower.includes("moon")) return true;
+    }
+    const currentHour = new Date().getHours();
+    if (obs && typeof obs.solar_radiation === "number" && typeof obs.uv === "number") {
+      if (obs.solar_radiation === 0 && obs.uv === 0 && (currentHour >= 18 || currentHour < 7)) {
+        return true;
+      }
+      if (obs.solar_radiation > 15 || obs.uv > 0.4) {
+        return false;
+      }
+    }
+    return currentHour < 6 || currentHour >= 20;
+  },
+
+  getWeatherIconSvg: function (iconName, conditions, isNight) {
     const code = (iconName || conditions || "").toLowerCase();
+    const night = isNight !== undefined ? isNight : (code.includes("night") || code.includes("moon"));
+    const baseAttrs = 'class="forecast-icon" viewBox="-1.5 -1.5 27 27" style="overflow: visible;" fill="none" stroke-linecap="round" stroke-linejoin="round"';
+
     if (code.includes("thunder") || code.includes("tstorm")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none"><path d="M19 15A4 4 0 0 0 17 7.5h-1.26A7 7 0 1 0 5 14.5" stroke="#cbd5e1" stroke-width="2"/><polygon points="13 11 9 17 13 17 11 23 17 15 13 15 15 11" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5"/></svg>';
+      return '<svg ' + baseAttrs + ' stroke-width="1.8"><path d="M17.5 13H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 13z" stroke="#cbd5e1"/><polygon points="13 13 9 18 13 18 11 23 16 16 12 16 13 13" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5"/></svg>';
     }
     if (code.includes("snow") || code.includes("flurries") || code.includes("blizzard")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#e0f2fe" stroke-width="2"><path d="M20 16A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15" stroke="#cbd5e1"/><circle cx="8" cy="18" r="1.2" fill="#e0f2fe"/><circle cx="12" cy="20" r="1.2" fill="#e0f2fe"/><circle cx="16" cy="18" r="1.2" fill="#e0f2fe"/><circle cx="10" cy="22" r="1.2" fill="#e0f2fe"/><circle cx="14" cy="22" r="1.2" fill="#e0f2fe"/></svg>';
+      return '<svg ' + baseAttrs + ' stroke="#e0f2fe" stroke-width="1.8"><path d="M17.5 14H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 14z" stroke="#cbd5e1"/><circle cx="8" cy="18.5" r="1" fill="#e0f2fe"/><circle cx="12" cy="18.5" r="1" fill="#e0f2fe"/><circle cx="16" cy="18.5" r="1" fill="#e0f2fe"/></svg>';
     }
     if (code.includes("rain") || code.includes("drizzle") || code.includes("shower")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 16.58A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15.25" stroke="#cbd5e1"/><line x1="8" y1="18" x2="7" y2="21" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/><line x1="12" y1="18" x2="11" y2="21" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/><line x1="16" y1="18" x2="15" y2="21" stroke="#38bdf8" stroke-width="2" stroke-linecap="round"/></svg>';
+      const nightMoon = night ? '<path d="M18 7A4.2 4.2 0 0 1 14 3.2a4.2 4.2 0 1 0 4 3.8z" stroke="#93c5fd" stroke-width="1.5" fill="#93c5fd" fill-opacity="0.15"/>' : '';
+      return '<svg ' + baseAttrs + ' stroke-width="1.8">' + nightMoon + '<path d="M17.5 14H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 14z" stroke="#cbd5e1"/><line x1="8" y1="18" x2="7" y2="21" stroke="#38bdf8" stroke-width="2"/><line x1="12" y1="18" x2="11" y2="21" stroke="#38bdf8" stroke-width="2"/><line x1="16" y1="18" x2="15" y2="21" stroke="#38bdf8" stroke-width="2"/></svg>';
     }
     if (code.includes("sleet") || code.includes("wintry")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke-width="2"><path d="M20 16A5 5 0 0 0 18 7h-1.26A8 8 0 1 0 4 15" stroke="#cbd5e1"/><line x1="8" y1="18" x2="7" y2="21" stroke="#38bdf8" stroke-width="2"/><circle cx="12" cy="20" r="1.2" fill="#e0f2fe"/><circle cx="16" cy="18" r="1.2" fill="#e0f2fe"/></svg>';
+      return '<svg ' + baseAttrs + ' stroke-width="1.8"><path d="M17.5 14H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 14z" stroke="#cbd5e1"/><line x1="8" y1="18" x2="7" y2="21" stroke="#38bdf8" stroke-width="2"/><circle cx="12" cy="20" r="1.2" fill="#e0f2fe"/><circle cx="16" cy="18" r="1.2" fill="#e0f2fe"/></svg>';
     }
     if (code.includes("fog") || code.includes("mist") || code.includes("haze")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#94a3b8" stroke-width="2" stroke-linecap="round"><line x1="4" y1="9" x2="20" y2="9"/><line x1="6" y1="13" x2="18" y2="13"/><line x1="4" y1="17" x2="20" y2="17"/></svg>';
+      return '<svg ' + baseAttrs + ' stroke="#94a3b8" stroke-width="1.8"><line x1="4" y1="8" x2="20" y2="8"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="4" y1="16" x2="20" y2="16"/><line x1="7" y1="20" x2="17" y2="20"/></svg>';
     }
-    if (code.includes("wind")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#67e8f9" stroke-width="2" stroke-linecap="round"><path d="M9.59 4.59A2 2 0 1 1 11 8H2m10.59 11.41A2 2 0 1 0 14 16H2m15.73-8.27A2.5 2.5 0 1 1 19.5 12H2"/></svg>';
+    if (code.includes("wind") || code.includes("breezy")) {
+      return '<svg ' + baseAttrs + ' stroke="#67e8f9" stroke-width="1.8"><path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2m7.6-3.1A2 2 0 1 1 11 8H2m10.6 11.4A2 2 0 1 0 14 16H2"/></svg>';
     }
     if (code.includes("partly") || code.includes("scattered")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none"><path d="M12 4V2m0 18v-2m8-8h2M2 12h2m13.66-5.66l1.41-1.41M4.93 19.07l1.41-1.41" stroke="#f59e0b" stroke-width="2" stroke-linecap="round"/><circle cx="12" cy="12" r="3" stroke="#f59e0b" stroke-width="2"/><path d="M17.5 19H9a5 5 0 0 1-.3-9.99 5.5 5.5 0 0 1 10.3-2.01A4.5 4.5 0 0 1 17.5 19z" fill="#09090b" stroke="#cbd5e1" stroke-width="2"/></svg>';
+      if (night) {
+        return '<svg ' + baseAttrs + ' stroke-width="1.8"><path d="M18 7.5A4.5 4.5 0 0 1 13.8 3.2a4.5 4.5 0 1 0 4.2 4.3z" stroke="#93c5fd" stroke-width="1.8" fill="#93c5fd" fill-opacity="0.2"/><path d="M17 19H8.5a4.5 4.5 0 0 1-.9-8.9 5.5 5.5 0 0 1 10.4 2.4A3.8 3.8 0 0 1 17 19z" fill="#09090b" stroke="#cbd5e1" stroke-width="1.8"/></svg>';
+      }
+      return '<svg ' + baseAttrs + ' stroke-width="1.8"><path d="M12 4V2m3.8 3.2l1.4-1.4M17.5 9h2" stroke="#f59e0b" stroke-width="1.8"/><path d="M10 8.5a4 4 0 0 1 4 4" stroke="#f59e0b" stroke-width="1.8"/><path d="M17 19H8.5a4.5 4.5 0 0 1-.9-8.9 5.5 5.5 0 0 1 10.4 2.4A3.8 3.8 0 0 1 17 19z" fill="#09090b" stroke="#cbd5e1" stroke-width="1.8"/></svg>';
     }
     if (code.includes("cloud") || code.includes("overcast")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#cbd5e1" stroke-width="2"><path d="M17.5 19H9a5 5 0 0 1-.3-9.99 5.5 5.5 0 0 1 10.3-2.01A4.5 4.5 0 0 1 17.5 19z"/></svg>';
+      return '<svg ' + baseAttrs + ' stroke="#cbd5e1" stroke-width="1.8"><path d="M17.5 19H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 19z"/></svg>';
     }
-    if (code.includes("night") || code.includes("moon")) {
-      return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#93c5fd" stroke-width="2"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>';
+    if (night || code.includes("night") || code.includes("moon")) {
+      return '<svg ' + baseAttrs + ' stroke="#93c5fd" stroke-width="1.8"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" fill="#93c5fd" fill-opacity="0.18"/><circle cx="18.5" cy="4.5" r="0.75" fill="#93c5fd" stroke="none"/><circle cx="21" cy="7.5" r="0.5" fill="#93c5fd" stroke="none"/></svg>';
     }
-    // Default sunny / clear
-    return '<svg class="forecast-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="2"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.41 1.41m11.32 11.32l1.41 1.41M2 12h2m16 0h2M6.34 17.66l-1.41 1.41M19.07 4.93l-1.41 1.41"/></svg>';
+    // Default sunny / clear during Day
+    return '<svg ' + baseAttrs + ' stroke="#f59e0b" stroke-width="1.8"><circle cx="12" cy="12" r="4.2"/><line x1="12" y1="2" x2="12" y2="4.2"/><line x1="12" y1="19.8" x2="12" y2="22"/><line x1="4.93" y1="4.93" x2="6.48" y2="6.48"/><line x1="17.52" y1="17.52" x2="19.07" y2="19.07"/><line x1="2" y1="12" x2="4.2" y2="12"/><line x1="19.8" y1="12" x2="22" y2="12"/><line x1="4.93" y1="19.07" x2="6.48" y2="17.52"/><line x1="17.52" y1="6.48" x2="19.07" y2="4.93"/></svg>';
   },
 
   openTouchModal: function () {
@@ -1498,22 +1529,26 @@ export function getMmmTempestWxCss(): string {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 20px;
 }
 
 .hero-condition-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
+  overflow: visible;
+  padding-right: 4px;
+  box-sizing: content-box;
 }
 
 .hero-condition-icon svg {
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   display: block;
+  overflow: visible;
 }
 
 .hero-temp-display {

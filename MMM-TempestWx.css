@@ -96,22 +96,26 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 16px;
+  gap: 20px;
 }
 
 .hero-condition-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 60px;
-  height: 60px;
+  width: 64px;
+  height: 64px;
   flex-shrink: 0;
+  overflow: visible;
+  padding-right: 4px;
+  box-sizing: content-box;
 }
 
 .hero-condition-icon svg {
-  width: 56px;
-  height: 56px;
+  width: 58px;
+  height: 58px;
   display: block;
+  overflow: visible;
 }
 
 .hero-temp-display {

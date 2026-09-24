@@ -533,7 +533,7 @@ const TemperatureGraphCard: React.FC<TemperatureGraphCardProps> = ({
           <span className="text-amber-300 font-semibold text-sm">{activeTempFormatted}</span>
           <span className="text-neutral-400 text-[11px]">Feels {feelsLikeFormatted}</span>
           <span className="text-neutral-400 flex items-center gap-1 text-[11px] font-sans">
-            <WeatherConditionIcon icon={activeHour.icon} size={14} />
+            <WeatherConditionIcon icon={activeHour.icon} condition={activeHour.conditions} size={14} />
             {activeHour.conditions}
           </span>
         </div>

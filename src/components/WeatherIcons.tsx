@@ -117,96 +117,156 @@ export const ModernWindVectorIcon: React.FC<{ degrees: number; size?: number; cl
 );
 
 /**
- * Modern minimalist condition icons
+ * Modern minimalist condition icons with Day/Night awareness (Sun during day, Moon at night)
+ * and generous viewBox padding to prevent SVG stroke clipping on the temperature side.
  */
-export const WeatherConditionIcon: React.FC<{ icon?: string; condition?: string; size?: number; className?: string }> = ({
+export const WeatherConditionIcon: React.FC<{
+  icon?: string;
+  condition?: string;
+  isNight?: boolean;
+  size?: number;
+  className?: string;
+}> = ({
   icon,
   condition,
+  isNight,
   size = 28,
   className = 'text-white',
 }) => {
   const iconKey = (icon || condition || 'partly-cloudy').toLowerCase();
+  const condKey = (condition || '').toLowerCase();
+  const night = isNight !== undefined
+    ? isNight
+    : (iconKey.includes('night') || iconKey.includes('moon') || condKey.includes('night') || condKey.includes('moon'));
+
+  // SVG base props with margin-padded viewBox to prevent edge stroke clipping
+  const baseSvgProps = {
+    width: size,
+    height: size,
+    viewBox: '-1.5 -1.5 27 27',
+    fill: 'none',
+    stroke: 'currentColor',
+    strokeWidth: 1.75,
+    strokeLinecap: 'round' as const,
+    strokeLinejoin: 'round' as const,
+    className,
+    style: { overflow: 'visible' as const },
+  };
+
+  // Clear / Sunny / Moon
+  if (
+    iconKey === 'clear' ||
+    iconKey === 'sunny' ||
+    iconKey === 'clear-day' ||
+    iconKey === 'clear-night' ||
+    iconKey === 'night' ||
+    iconKey === 'moon' ||
+    condKey.includes('clear') ||
+    condKey.includes('sunny')
+  ) {
+    if (night) {
+      // Crescent Moon at Night
+      return (
+        <svg {...baseSvgProps}>
+          <path
+            d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+            fill="currentColor"
+            fillOpacity="0.18"
+          />
+          <circle cx="18.5" cy="4.5" r="0.75" fill="currentColor" stroke="none" />
+          <circle cx="21" cy="7.5" r="0.5" fill="currentColor" stroke="none" />
+        </svg>
+      );
+    }
+    // Radiant Sun during Day
+    return (
+      <svg {...baseSvgProps}>
+        <circle cx="12" cy="12" r="4.2" />
+        <line x1="12" y1="2" x2="12" y2="4.2" />
+        <line x1="12" y1="19.8" x2="12" y2="22" />
+        <line x1="4.93" y1="4.93" x2="6.48" y2="6.48" />
+        <line x1="17.52" y1="17.52" x2="19.07" y2="19.07" />
+        <line x1="2" y1="12" x2="4.2" y2="12" />
+        <line x1="19.8" y1="12" x2="22" y2="12" />
+        <line x1="4.93" y1="19.07" x2="6.48" y2="17.52" />
+        <line x1="17.52" y1="6.48" x2="19.07" y2="4.93" />
+      </svg>
+    );
+  }
+
+  // Partly Cloudy / Scattered Clouds
+  if (
+    iconKey.includes('partly') ||
+    iconKey.includes('scattered') ||
+    condKey.includes('partly') ||
+    condKey.includes('scattered')
+  ) {
+    if (night) {
+      // Moon behind Cloud at Night
+      return (
+        <svg {...baseSvgProps}>
+          {/* Crescent Moon nestled in upper right */}
+          <path
+            d="M18 7.5A4.5 4.5 0 0 1 13.8 3.2a4.5 4.5 0 1 0 4.2 4.3z"
+            stroke="currentColor"
+            strokeWidth="1.75"
+            fill="currentColor"
+            fillOpacity="0.2"
+          />
+          {/* Cloud in foreground */}
+          <path
+            d="M17 19H8.5a4.5 4.5 0 0 1-.9-8.9 5.5 5.5 0 0 1 10.4 2.4A3.8 3.8 0 0 1 17 19z"
+            fill="#09090b"
+            fillOpacity="0.4"
+          />
+        </svg>
+      );
+    }
+    // Sun behind Cloud during Day
+    return (
+      <svg {...baseSvgProps}>
+        {/* Sun rays & arc behind cloud */}
+        <path d="M12 4V2" />
+        <path d="M15.8 5.2l1.4-1.4" />
+        <path d="M17.5 9h2" />
+        <path d="M10 8.5a4 4 0 0 1 4 4" />
+        {/* Cloud in foreground */}
+        <path
+          d="M17 19H8.5a4.5 4.5 0 0 1-.9-8.9 5.5 5.5 0 0 1 10.4 2.4A3.8 3.8 0 0 1 17 19z"
+          fill="#09090b"
+          fillOpacity="0.4"
+        />
+      </svg>
+    );
+  }
+
   switch (iconKey) {
-    case 'clear':
-    case 'sunny':
-      return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
-          <circle cx="12" cy="12" r="4.5" />
-          <line x1="12" y1="2" x2="12" y2="4" />
-          <line x1="12" y1="20" x2="12" y2="22" />
-          <line x1="4.93" y1="4.93" x2="6.34" y2="6.34" />
-          <line x1="17.66" y1="17.66" x2="19.07" y2="19.07" />
-          <line x1="2" y1="12" x2="4" y2="12" />
-          <line x1="20" y1="12" x2="22" y2="12" />
-          <line x1="4.93" y1="19.07" x2="6.34" y2="17.66" />
-          <line x1="17.66" y1="6.34" x2="19.07" y2="4.93" />
-        </svg>
-      );
-
-    case 'partly-cloudy':
-      return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
-          {/* Sun behind cloud */}
-          <path d="M12 4V2" />
-          <path d="M16.5 6.5l1.4-1.4" />
-          <path d="M18 10h2" />
-          <path d="M16.5 13.5l1.4 1.4" />
-          <path d="M10 9a4 4 0 0 1 4 4" />
-          {/* Minimalist cloud */}
-          <path d="M17.5 19H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 19z" />
-        </svg>
-      );
-
     case 'cloudy':
+    case 'overcast':
       return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
+        <svg {...baseSvgProps}>
           <path d="M17.5 19H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 19z" />
         </svg>
       );
 
     case 'rain':
+    case 'rain-night':
+    case 'rainy':
+    case 'shower':
+    case 'showers':
+    case 'drizzle':
       return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
+        <svg {...baseSvgProps}>
+          {night && (
+            <path
+              d="M18 7A4.2 4.2 0 0 1 14 3.2a4.2 4.2 0 1 0 4 3.8z"
+              stroke="currentColor"
+              strokeWidth="1.5"
+              fill="currentColor"
+              fillOpacity="0.15"
+              opacity="0.8"
+            />
+          )}
           <path d="M17.5 14H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 14z" />
           <line x1="8" y1="18" x2="7" y2="21" strokeWidth="2" />
           <line x1="12" y1="18" x2="11" y2="21" strokeWidth="2" />
@@ -215,36 +275,19 @@ export const WeatherConditionIcon: React.FC<{ icon?: string; condition?: string;
       );
 
     case 'thunderstorm':
+    case 'tstorm':
       return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
+        <svg {...baseSvgProps}>
           <path d="M17.5 13H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 13z" />
           <polygon points="13 13 9 18 13 18 11 23 16 16 12 16 13 13" fill="currentColor" stroke="none" />
         </svg>
       );
 
     case 'windy':
+    case 'breezy':
+    case 'wind':
       return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
+        <svg {...baseSvgProps}>
           <path d="M17.7 7.7a2.5 2.5 0 1 1 1.8 4.3H2" />
           <path d="M9.6 4.6A2 2 0 1 1 11 8H2" />
           <path d="M12.6 19.4A2 2 0 1 0 14 16H2" />
@@ -252,18 +295,10 @@ export const WeatherConditionIcon: React.FC<{ icon?: string; condition?: string;
       );
 
     case 'snow':
+    case 'flurries':
+    case 'blizzard':
       return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
+        <svg {...baseSvgProps}>
           <path d="M17.5 14H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 14z" />
           <circle cx="8" cy="18.5" r="1" fill="currentColor" stroke="none" />
           <circle cx="12" cy="18.5" r="1" fill="currentColor" stroke="none" />
@@ -271,19 +306,32 @@ export const WeatherConditionIcon: React.FC<{ icon?: string; condition?: string;
         </svg>
       );
 
-    default:
+    case 'fog':
+    case 'mist':
+    case 'haze':
       return (
-        <svg
-          width={size}
-          height={size}
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.75"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={className}
-        >
+        <svg {...baseSvgProps}>
+          <line x1="4" y1="8" x2="20" y2="8" strokeWidth="1.75" />
+          <line x1="6" y1="12" x2="18" y2="12" strokeWidth="1.75" />
+          <line x1="4" y1="16" x2="20" y2="16" strokeWidth="1.75" />
+          <line x1="7" y1="20" x2="17" y2="20" strokeWidth="1.75" />
+        </svg>
+      );
+
+    default:
+      if (night) {
+        return (
+          <svg {...baseSvgProps}>
+            <path
+              d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"
+              fill="currentColor"
+              fillOpacity="0.18"
+            />
+          </svg>
+        );
+      }
+      return (
+        <svg {...baseSvgProps}>
           <path d="M17.5 19H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 19z" />
         </svg>
       );

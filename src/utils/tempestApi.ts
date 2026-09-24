@@ -151,7 +151,10 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
     feels_like: feelsLike,
     dew_point: Number(dewPoint.toFixed(1)),
     conditions: forecastData?.current_conditions?.conditions || forecastData?.forecast?.daily?.[0]?.conditions || 'Clear',
-    icon: mapWeatherFlowIcon(forecastData?.current_conditions?.icon || forecastData?.forecast?.daily?.[0]?.icon || 'clear-day'),
+    icon: mapWeatherFlowIcon(
+      forecastData?.current_conditions?.icon || forecastData?.forecast?.daily?.[0]?.icon || 'clear',
+      (solar === 0 && uv === 0 && (new Date().getHours() >= 18 || new Date().getHours() < 7)) || (new Date().getHours() < 6 || new Date().getHours() >= 20)
+    ),
   };
 
   let daily: DailyForecast[] = [];
@@ -184,6 +187,7 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
     hourly = forecastData.forecast.hourly.slice(0, 24).map((h: any) => {
       const d = new Date(h.time * 1000);
       const hours = d.getHours();
+      const isNightHour = hours < 6 || hours >= 20;
       const hourLabel = hours === 0 ? '12 AM' : hours === 12 ? '12 PM' : hours > 12 ? `${hours - 12} PM` : `${hours} AM`;
       // WeatherFlow better_forecast API uses 'air_temperature' for hourly objects
       const rawHourTemp = h.air_temperature ?? h.air_temp ?? h.temp ?? 20;
@@ -191,8 +195,8 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
       return {
         time: h.time,
         hour_label: hourLabel,
-        conditions: h.conditions || 'Clear',
-        icon: mapWeatherFlowIcon(h.icon),
+        conditions: h.conditions || (isNightHour ? 'Clear Night' : 'Clear'),
+        icon: mapWeatherFlowIcon(h.icon, isNightHour),
         air_temp: Number(rawHourTemp),
         feels_like: Number(rawFeelsLike),
         relative_humidity: Number(h.relative_humidity ?? 50),
@@ -221,16 +225,17 @@ export async function fetchLiveTempestData(stationId: string, token: string): Pr
   };
 }
 
-function mapWeatherFlowIcon(iconStr: string): string {
-  if (!iconStr) return 'partly-cloudy';
+function mapWeatherFlowIcon(iconStr: string, isNight = false): string {
+  if (!iconStr) return isNight ? 'clear-night' : 'partly-cloudy';
   const s = iconStr.toLowerCase();
+  const night = isNight || s.includes('night') || s.includes('moon');
   if (s.includes('thunder') || s.includes('lightning')) return 'thunderstorm';
-  if (s.includes('rain') || s.includes('shower')) return 'rain';
-  if (s.includes('snow') || s.includes('flurries')) return 'snow';
+  if (s.includes('rain') || s.includes('shower') || s.includes('drizzle')) return night ? 'rain-night' : 'rain';
+  if (s.includes('snow') || s.includes('flurries') || s.includes('blizzard')) return 'snow';
   if (s.includes('wind')) return 'windy';
-  if (s.includes('fog') || s.includes('haze')) return 'fog';
-  if (s.includes('cloudy') || s.includes('overcast')) return 'cloudy';
-  if (s.includes('partly')) return 'partly-cloudy';
-  if (s.includes('clear')) return 'clear';
-  return 'partly-cloudy';
+  if (s.includes('fog') || s.includes('haze') || s.includes('mist')) return 'fog';
+  if (s.includes('cloudy') || s.includes('overcast')) return night ? 'cloudy-night' : 'cloudy';
+  if (s.includes('partly') || s.includes('scattered')) return night ? 'partly-cloudy-night' : 'partly-cloudy';
+  if (s.includes('clear') || s.includes('sunny')) return night ? 'clear-night' : 'clear';
+  return night ? 'clear-night' : 'partly-cloudy';
 }

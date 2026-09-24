@@ -111,6 +111,24 @@ export const STATION_PRESETS: StationPreset[] = [
     lightningCount: 14,
     lightningDistanceKm: 3.4, // Severe nearby lightning
   },
+  {
+    id: 'tempest-night-06',
+    name: 'Stargazing Observatory Node',
+    location: 'Mauna Kea Saddle, HI',
+    tempC: 8.5, // ~47°F crisp night
+    humidity: 38,
+    pressureMb: 1017.5,
+    windMs: 3.2,
+    gustMs: 5.1,
+    windDeg: 280,
+    condition: 'Clear Night',
+    conditionIcon: 'clear-night',
+    rainMm: 0.0,
+    uv: 0.0,
+    solar: 0,
+    lightningCount: 0,
+    lightningDistanceKm: 0,
+  },
 ];
 
 export function generateForecastDaily(baseTempC: number, presetId: string): DailyForecast[] {
@@ -185,11 +203,27 @@ export function generateForecastHourly(baseWindMs: number, baseTempC: number): H
       precipAccum = Number((Math.max(0, (precipProb - 30) / 25) * 1.4).toFixed(2));
     }
 
+    const isNightHour = hour24 < 6 || hour24 >= 20;
+    const hourConditions = precipAccum > 1.0
+      ? (isNightHour ? 'Night Rain' : 'Rain')
+      : isNightHour
+      ? 'Clear Night'
+      : diurnalFactor > 0
+      ? 'Clear'
+      : 'Partly Cloudy';
+    const hourIcon = precipAccum > 1.0
+      ? (isNightHour ? 'rain-night' : 'rain')
+      : isNightHour
+      ? 'clear-night'
+      : diurnalFactor > 0
+      ? 'clear'
+      : 'partly-cloudy';
+
     result.push({
       time: Math.floor(d.getTime() / 1000),
       hour_label: hourLabel,
-      conditions: precipAccum > 1.0 ? 'Rain' : diurnalFactor > 0 ? 'Clear' : 'Overcast',
-      icon: precipAccum > 1.0 ? 'rain' : diurnalFactor > 0 ? 'clear' : 'partly-cloudy',
+      conditions: hourConditions,
+      icon: hourIcon,
       air_temp: Number(temp.toFixed(1)),
       feels_like: Number(feelsLike.toFixed(1)),
       relative_humidity: humidity,

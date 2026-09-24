@@ -251,7 +251,7 @@ export const WeatherModal: React.FC<WeatherModalProps> = ({
 
                     {/* Condition Icon */}
                     <div className="my-1.5 text-neutral-100 flex items-center justify-center h-9">
-                      <WeatherConditionIcon icon={day.icon} size={28} />
+                      <WeatherConditionIcon icon={day.icon} condition={day.conditions} size={28} />
                     </div>
 
                     {/* Conditions description */}
