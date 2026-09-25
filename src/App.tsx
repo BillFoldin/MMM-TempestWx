@@ -41,12 +41,13 @@ export default function App() {
     mirrorPosition: 'top_right',
     theme: 'native-mirror',
     weatherProvider: 'tempest',
+    checkNoaaAlerts: true,
   });
 
   // Current Station data
   const [stationData, setStationData] = useState<TempestStationData>(() => {
     const preset = STATION_PRESETS[0];
-    return getPresetStationData(preset, 'tempest');
+    return getPresetStationData(preset, 'tempest', true);
   });
 
   // Fetch or refresh station data
@@ -62,15 +63,21 @@ export default function App() {
           cfg.token,
           cfg.weatherProvider || 'tempest',
           cfg.latitude,
-          cfg.longitude
+          cfg.longitude,
+          cfg.checkNoaaAlerts !== false
         );
         setStationData(liveData);
-        setStatusNotice(`Connected to live Tempest Station #${cfg.stationId} (7-day forecast: ${cfg.weatherProvider === 'NOAA' ? 'NOAA.gov' : 'Tempest'})`);
+        const alertTag = liveData.active_alert ? ` [Alert: ${liveData.active_alert.event}]` : '';
+        setStatusNotice(`Connected to live Tempest Station #${cfg.stationId} (7-day forecast: ${cfg.weatherProvider === 'NOAA' ? 'NOAA.gov' : 'Tempest'})${alertTag}`);
       } else {
         // Preset simulation
         const targetPreset =
           STATION_PRESETS.find((p) => p.id === (presetId || cfg.stationId)) || STATION_PRESETS[0];
-        const simulated = getPresetStationData(targetPreset, cfg.weatherProvider || 'tempest');
+        const simulated = getPresetStationData(
+          targetPreset,
+          cfg.weatherProvider || 'tempest',
+          cfg.checkNoaaAlerts !== false
+        );
         setStationData(simulated);
       }
     } catch (err: any) {
@@ -79,7 +86,11 @@ export default function App() {
       // Fallback to preset
       const targetPreset =
         STATION_PRESETS.find((p) => p.id === presetId) || STATION_PRESETS[0];
-      setStationData(getPresetStationData(targetPreset, cfg.weatherProvider || 'tempest'));
+      setStationData(getPresetStationData(
+        targetPreset,
+        cfg.weatherProvider || 'tempest',
+        cfg.checkNoaaAlerts !== false
+      ));
     } finally {
       setIsLoading(false);
     }
@@ -342,6 +353,7 @@ export default function App() {
         forecastDaily={stationData.forecast_daily}
         forecastHourly={stationData.forecast_hourly}
         config={config}
+        activeAlert={stationData.active_alert}
       />
 
       {/* Station & Display Config Modal */}

@@ -30,6 +30,9 @@ export const StationConfigModal: React.FC<StationConfigModalProps> = ({
   const [autoCloseModalSeconds, setAutoCloseModalSeconds] = useState(config.autoCloseModalSeconds);
   const [showFeelsLike, setShowFeelsLike] = useState(config.showFeelsLike);
   const [showDewPoint, setShowDewPoint] = useState(config.showDewPoint);
+  const [suppressUpdateAlerts, setSuppressUpdateAlerts] = useState(config.suppressUpdateAlerts ?? true);
+  const [broadcastSevereWeatherAlerts, setBroadcastSevereWeatherAlerts] = useState(config.broadcastSevereWeatherAlerts ?? true);
+  const [checkNoaaAlerts, setCheckNoaaAlerts] = useState(config.checkNoaaAlerts ?? true);
   const [mirrorPosition, setMirrorPosition] = useState<MirrorPosition>(config.mirrorPosition);
   const [theme, setTheme] = useState<'native-mirror' | 'ambient-glass'>(config.theme);
 
@@ -52,6 +55,9 @@ export const StationConfigModal: React.FC<StationConfigModalProps> = ({
       autoCloseModalSeconds,
       showFeelsLike,
       showDewPoint,
+      suppressUpdateAlerts,
+      broadcastSevereWeatherAlerts,
+      checkNoaaAlerts,
       mirrorPosition,
       theme,
     });
@@ -347,6 +353,36 @@ export const StationConfigModal: React.FC<StationConfigModalProps> = ({
                   className="rounded bg-neutral-900 border-neutral-800 text-sky-500 focus:ring-0"
                 />
                 <span>Show Dew Point</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={suppressUpdateAlerts}
+                  onChange={(e) => setSuppressUpdateAlerts(e.target.checked)}
+                  className="rounded bg-neutral-900 border-neutral-800 text-sky-500 focus:ring-0"
+                />
+                <span>Suppress Module Update Alerts</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={broadcastSevereWeatherAlerts}
+                  onChange={(e) => setBroadcastSevereWeatherAlerts(e.target.checked)}
+                  className="rounded bg-neutral-900 border-neutral-800 text-amber-500 focus:ring-0"
+                />
+                <span className="text-amber-300">Keep Severe Weather / Lightning Alerts</span>
+              </label>
+
+              <label className="flex items-center gap-2 text-xs text-neutral-300 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={checkNoaaAlerts}
+                  onChange={(e) => setCheckNoaaAlerts(e.target.checked)}
+                  className="rounded bg-neutral-900 border-neutral-800 text-yellow-500 focus:ring-0"
+                />
+                <span className="text-yellow-300 font-medium">Check NOAA for Weather Statements &amp; Alerts</span>
               </label>
 
               <div className="flex items-center gap-2">

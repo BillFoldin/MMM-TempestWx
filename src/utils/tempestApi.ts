@@ -1,4 +1,4 @@
-import { TempestStationData, TempestObservation, DailyForecast, HourlyForecast, WeatherProvider } from '../types/tempest.ts';
+import { TempestStationData, TempestObservation, DailyForecast, HourlyForecast, WeatherProvider, NoaaWeatherAlert, NoaaAlertLevel } from '../types/tempest.ts';
 import { degreesToCardinal } from './tempestFormat.ts';
 import { generateForecastDaily, generateForecastHourly, generateNoaaForecastDaily } from './mockStations.ts';
 
@@ -7,7 +7,8 @@ export async function fetchLiveTempestData(
   token: string,
   weatherProvider: WeatherProvider = 'tempest',
   customLat?: number,
-  customLon?: number
+  customLon?: number,
+  checkNoaaAlerts: boolean = true
 ): Promise<TempestStationData> {
   if (!stationId || !token) {
     throw new Error('Station ID and Tempest Personal Access Token are required.');
@@ -166,47 +167,61 @@ export async function fetchLiveTempestData(
   let daily: DailyForecast[] = [];
   let forecastSource: WeatherProvider = 'tempest';
 
-  const isNoaa = String(weatherProvider).toUpperCase() === 'NOAA';
+  // Determine geographic coordinates (for NOAA forecast and NOAA active statements/alerts)
+  let lat: number | null = typeof customLat === 'number' && !isNaN(customLat) ? customLat : null;
+  let lon: number | null = typeof customLon === 'number' && !isNaN(customLon) ? customLon : null;
 
-  if (isNoaa) {
-    let lat: number | null = typeof customLat === 'number' && !isNaN(customLat) ? customLat : null;
-    let lon: number | null = typeof customLon === 'number' && !isNaN(customLon) ? customLon : null;
-
-    if (lat === null || lon === null) {
-      if (typeof forecastData?.latitude === 'number' && typeof forecastData?.longitude === 'number') {
-        lat = forecastData.latitude;
-        lon = forecastData.longitude;
-      } else {
-        try {
-          const stRes = await fetch(`https://swd.weatherflow.com/swd/rest/stations/${cleanStationId}?token=${cleanToken}`);
-          if (stRes.ok) {
-            const stData = await stRes.json();
-            const stationObj = stData?.stations?.[0];
-            if (stationObj && typeof stationObj.latitude === 'number' && typeof stationObj.longitude === 'number') {
-              lat = stationObj.latitude;
-              lon = stationObj.longitude;
-            }
+  if (lat === null || lon === null) {
+    if (typeof forecastData?.latitude === 'number' && typeof forecastData?.longitude === 'number') {
+      lat = forecastData.latitude;
+      lon = forecastData.longitude;
+    } else {
+      try {
+        const stRes = await fetch(`https://swd.weatherflow.com/swd/rest/stations/${cleanStationId}?token=${cleanToken}`);
+        if (stRes.ok) {
+          const stData = await stRes.json();
+          const stationObj = stData?.stations?.[0];
+          if (stationObj && typeof stationObj.latitude === 'number' && typeof stationObj.longitude === 'number') {
+            lat = stationObj.latitude;
+            lon = stationObj.longitude;
           }
-        } catch {
-          // ignore metadata error
         }
+      } catch {
+        // ignore metadata error
       }
     }
+  }
 
-    if (lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
-      try {
-        const noaaRes = await fetch(`/api/noaa/forecast?lat=${lat}&lon=${lon}`);
-        if (noaaRes.ok) {
-          const noaaData = await noaaRes.json();
-          const parsedDaily = parseNoaaForecastPeriods(noaaData);
-          if (parsedDaily.length > 0) {
-            daily = parsedDaily;
-            forecastSource = 'NOAA';
-          }
+  // 1. NOAA 7-Day Forecast if requested
+  const isNoaa = String(weatherProvider).toUpperCase() === 'NOAA';
+
+  if (isNoaa && lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
+    try {
+      const noaaRes = await fetch(`/api/noaa/forecast?lat=${lat}&lon=${lon}`);
+      if (noaaRes.ok) {
+        const noaaData = await noaaRes.json();
+        const parsedDaily = parseNoaaForecastPeriods(noaaData);
+        if (parsedDaily.length > 0) {
+          daily = parsedDaily;
+          forecastSource = 'NOAA';
         }
-      } catch (noaaErr) {
-        console.warn('Could not fetch NOAA forecast, falling back to Tempest forecast', noaaErr);
       }
+    } catch (noaaErr) {
+      console.warn('Could not fetch NOAA forecast, falling back to Tempest forecast', noaaErr);
+    }
+  }
+
+  // 2. NOAA Active Weather Statements, Watches, Advisories, Warnings
+  let noaaAlerts: NoaaWeatherAlert[] = [];
+  if (checkNoaaAlerts && lat !== null && lon !== null && !isNaN(lat) && !isNaN(lon)) {
+    try {
+      const alertsRes = await fetch(`/api/noaa/alerts?lat=${lat}&lon=${lon}`);
+      if (alertsRes.ok) {
+        const alertsData = await alertsRes.json();
+        noaaAlerts = parseNoaaAlerts(alertsData);
+      }
+    } catch (alertsErr) {
+      console.warn('Could not fetch NOAA active alerts:', alertsErr);
     }
   }
 
@@ -278,9 +293,62 @@ export async function fetchLiveTempestData(
     forecast_daily: daily,
     forecast_hourly: hourly,
     forecast_source: forecastSource,
+    noaa_alerts: noaaAlerts,
+    active_alert: noaaAlerts.length > 0 ? noaaAlerts[0] : null,
     is_live: true,
     error: null,
   };
+}
+
+export function parseNoaaAlerts(alertsData: any): NoaaWeatherAlert[] {
+  const features = alertsData?.features || [];
+  if (!Array.isArray(features) || features.length === 0) return [];
+
+  const parsed: NoaaWeatherAlert[] = features.map((f: any) => {
+    const p = f.properties || {};
+    const event = (p.event || 'Special Weather Statement').trim();
+    const lower = event.toLowerCase();
+
+    let level: NoaaAlertLevel = 'statement';
+    let color: 'red' | 'orange' | 'yellow' = 'yellow';
+    let priority = 0;
+
+    if (lower.includes('warning')) {
+      level = 'warning';
+      color = 'red';
+      priority = 3;
+    } else if (lower.includes('advisory')) {
+      level = 'advisory';
+      color = 'orange';
+      priority = 2;
+    } else if (lower.includes('watch')) {
+      level = 'watch';
+      color = 'yellow';
+      priority = 1;
+    } else {
+      level = 'statement';
+      color = 'yellow';
+      priority = 0;
+    }
+
+    return {
+      event,
+      headline: p.headline || event,
+      description: p.description || '',
+      instruction: p.instruction || '',
+      severity: p.severity || 'Unknown',
+      urgency: p.urgency || 'Unknown',
+      certainty: p.certainty || 'Unknown',
+      effective: p.effective || '',
+      expires: p.expires || '',
+      level,
+      color,
+      priority,
+    };
+  });
+
+  parsed.sort((a, b) => b.priority - a.priority);
+  return parsed;
 }
 
 export function parseNoaaForecastPeriods(noaaData: any): DailyForecast[] {

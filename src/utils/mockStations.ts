@@ -1,4 +1,4 @@
-import { TempestStationData, DailyForecast, HourlyForecast, TempestObservation, WeatherProvider } from '../types/tempest.ts';
+import { TempestStationData, DailyForecast, HourlyForecast, TempestObservation, WeatherProvider, NoaaWeatherAlert } from '../types/tempest.ts';
 import { degreesToCardinal } from './tempestFormat.ts';
 
 export interface StationPreset {
@@ -304,7 +304,87 @@ export function generateNoaaForecastDaily(baseTempC: number, presetId: string): 
   return result;
 }
 
-export function getPresetStationData(preset: StationPreset, weatherProvider: WeatherProvider = 'tempest'): TempestStationData {
+export function getPresetNoaaAlerts(presetId: string): NoaaWeatherAlert[] {
+  if (presetId === 'tempest-storm-04') {
+    return [
+      {
+        event: 'Severe Thunderstorm Warning',
+        headline: 'Severe Thunderstorm Warning issued for Linn County until 9:30 PM CDT',
+        description: 'At 8:45 PM CDT, severe thunderstorms capable of producing 60 mph wind gusts and quarter size hail were located near Cedar Rapids, moving east at 35 mph. Frequent cloud-to-ground lightning is occurring.',
+        instruction: 'For your protection move to an interior room on the lowest floor of a building. Remain indoors until storm passes.',
+        severity: 'Severe',
+        urgency: 'Immediate',
+        certainty: 'Observed',
+        level: 'warning',
+        color: 'red',
+        priority: 3,
+        expires: 'Until 9:30 PM CDT',
+      },
+    ];
+  }
+
+  if (presetId === 'tempest-coastal-02') {
+    return [
+      {
+        event: 'High Wind Advisory',
+        headline: 'Wind Advisory in effect from 6:00 PM this evening to 4:00 AM EDT Friday',
+        description: 'South winds 25 to 35 mph with gusts up to 50 mph expected along Outer Banks barrier island corridors and open sound waters.',
+        instruction: 'Use extra caution when driving high-profile vehicles on coastal bridges. Secure outdoor furniture and garbage cans.',
+        severity: 'Moderate',
+        urgency: 'Expected',
+        certainty: 'Likely',
+        level: 'advisory',
+        color: 'orange',
+        priority: 2,
+        expires: 'Until 4:00 AM EDT',
+      },
+    ];
+  }
+
+  if (presetId === 'tempest-summit-01') {
+    return [
+      {
+        event: 'Special Weather Statement',
+        headline: 'Special Weather Statement: Freezing Fog and Sudden Temperature Drop Above 3,000 Feet',
+        description: 'A sharp cold front crossing northern New Hampshire foothills will generate sudden dense fog, freezing mist, and northwest wind gusts up to 35 mph.',
+        instruction: 'Hikers and motorists on high-elevation passes should anticipate icy patches and sudden drops in visibility.',
+        severity: 'Minor',
+        urgency: 'Expected',
+        certainty: 'Observed',
+        level: 'statement',
+        color: 'yellow',
+        priority: 0,
+        expires: 'Until 11:00 PM EDT',
+      },
+    ];
+  }
+
+  if (presetId === 'tempest-desert-05') {
+    return [
+      {
+        event: 'Excessive Heat Watch',
+        headline: 'Excessive Heat Watch in effect from Friday morning through Sunday evening',
+        description: 'Dangerously hot conditions with afternoon temperatures up to 108 degrees Fahrenheit anticipated across Tucson and surrounding low deserts.',
+        instruction: 'Drink plenty of fluids, stay in an air-conditioned room, stay out of direct sun, and check up on neighbors.',
+        severity: 'Severe',
+        urgency: 'Future',
+        certainty: 'Possible',
+        level: 'watch',
+        color: 'yellow',
+        priority: 1,
+        expires: 'Until 8:00 PM MST Sunday',
+      },
+    ];
+  }
+
+  return [];
+}
+
+export function getPresetStationData(
+  preset: StationPreset,
+  weatherProvider: WeatherProvider = 'tempest',
+  checkAlerts = true
+): TempestStationData {
   const dewPoint = preset.tempC - ((100 - preset.humidity) / 5);
   // Pressure trend: positive or negative
   const trend = preset.pressureMb < 1005 ? 'falling' : preset.pressureMb > 1020 ? 'rising' : 'steady';
@@ -338,6 +418,8 @@ export function getPresetStationData(preset: StationPreset, weatherProvider: Wea
   };
 
   const isNoaa = String(weatherProvider).toUpperCase() === 'NOAA';
+  const alerts = checkAlerts ? getPresetNoaaAlerts(preset.id) : [];
+  const activeAlert = alerts.length > 0 ? alerts[0] : null;
 
   return {
     station_id: preset.id,
@@ -347,6 +429,8 @@ export function getPresetStationData(preset: StationPreset, weatherProvider: Wea
     forecast_daily: isNoaa ? generateNoaaForecastDaily(preset.tempC, preset.id) : generateForecastDaily(preset.tempC, preset.id),
     forecast_hourly: generateForecastHourly(preset.windMs, preset.tempC),
     forecast_source: isNoaa ? 'NOAA' : 'tempest',
+    noaa_alerts: alerts,
+    active_alert: activeAlert,
     is_live: false,
     error: null,
   };

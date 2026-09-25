@@ -40,7 +40,10 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
     autoCloseModalSeconds: ${config.autoCloseModalSeconds},
     showFeelsLike: ${config.showFeelsLike},
     showDewPoint: ${config.showDewPoint},
-    showTrendArrows: ${config.showTrendArrows}
+    showTrendArrows: ${config.showTrendArrows},
+    checkNoaaAlerts: ${config.checkNoaaAlerts ?? true}, // Outlines module with color & shows statement title
+    suppressUpdateAlerts: ${config.suppressUpdateAlerts ?? true}, // Removes module update alert popups
+    broadcastSevereWeatherAlerts: ${config.broadcastSevereWeatherAlerts ?? true} // Keeps severe weather/lightning alerts active
   }
 },`;
 
@@ -290,6 +293,62 @@ export const ModuleCodeViewer: React.FC<ModuleCodeViewerProps> = ({ config }) =>
                   </div>
                   <p className="text-neutral-300 text-[11px] leading-relaxed">
                     This module uses pure Node.js built-in APIs (<code className="text-amber-200 font-mono">https</code>) with zero third-party npm packages. <strong>No <code className="text-white">package.json</code> is needed or included</strong> in the module, eliminating any CommonJS vs ES module conflicts (<code className="text-rose-300">"require is not defined in ES module scope"</code>) in MagicMirror².
+                  </p>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-amber-900/40">
+                  <div className="font-semibold text-amber-200 mb-1 flex items-center justify-between">
+                    <span>Remove Module Update Alerts &amp; Keep Severe Weather Alerts</span>
+                    <span className="text-[10px] bg-sky-950/80 text-sky-300 border border-sky-800 px-2 py-0.5 rounded font-mono">Alerts Setup</span>
+                  </div>
+                  <p className="text-neutral-300 text-[11px] leading-relaxed mb-2">
+                    To prevent MagicMirror's default <code className="text-amber-300">updatenotification</code> module from displaying module update banners on your mirror while keeping lightning &amp; severe weather popups active:
+                  </p>
+                  <div className="p-2.5 rounded bg-black/70 border border-neutral-800 font-mono text-[11px] space-y-1">
+                    <div className="text-neutral-400 text-[10px] font-sans font-medium">In your MagicMirror config/config.js:</div>
+                    <div className="text-emerald-300">// 1. Keep the 'alert' module enabled for severe weather &amp; lightning:</div>
+                    <div className="text-neutral-300">&#123; module: "alert" &#125;,</div>
+                    <div className="text-emerald-300 mt-1">// 2. Disable module update alerts:</div>
+                    <div className="text-neutral-300">&#123;</div>
+                    <div className="text-neutral-300 pl-4">module: "updatenotification",</div>
+                    <div className="text-sky-300 pl-4">disabled: true // Turns off module update alert banners</div>
+                    <div className="text-neutral-300">&#125;,</div>
+                  </div>
+                  <p className="text-neutral-400 text-[10px] mt-2">
+                    <code className="text-amber-200 font-mono">MMM-TempestWx</code> also defaults to <code className="text-white">suppressUpdateAlerts: true</code> to automatically dismiss update popups, and <code className="text-amber-300">broadcastSevereWeatherAlerts: true</code> to ensure urgent lightning strikes (&le; 10 km) trigger prominent alerts.
+                  </p>
+                </div>
+
+                <div className="mt-3 pt-3 border-t border-amber-900/40">
+                  <div className="font-semibold text-amber-200 mb-1 flex items-center justify-between">
+                    <span>NOAA Special Weather Statements &amp; Alerts</span>
+                    <span className="text-[10px] bg-amber-950/80 text-amber-300 border border-amber-800 px-2 py-0.5 rounded font-mono">Color Outlines</span>
+                  </div>
+                  <p className="text-neutral-300 text-[11px] leading-relaxed mb-2">
+                    When <code className="text-amber-300">checkNoaaAlerts: true</code> is active, the module queries NOAA National Weather Service (<code className="text-sky-300">api.weather.gov/alerts/active</code>) for your station coordinates:
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-[11px]">
+                    <div className="p-2 rounded bg-yellow-950/30 border border-yellow-500/50">
+                      <div className="font-semibold text-yellow-300 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-yellow-400"></span> Yellow Outline
+                      </div>
+                      <div className="text-[10px] text-neutral-300 mt-1">Watches &amp; Special Weather Statements</div>
+                    </div>
+                    <div className="p-2 rounded bg-orange-950/30 border border-orange-500/50">
+                      <div className="font-semibold text-orange-300 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-orange-400"></span> Orange Outline
+                      </div>
+                      <div className="text-[10px] text-neutral-300 mt-1">Weather Advisories</div>
+                    </div>
+                    <div className="p-2 rounded bg-red-950/30 border border-red-500/50">
+                      <div className="font-semibold text-red-300 flex items-center gap-1.5">
+                        <span className="w-2 h-2 rounded-full bg-red-400"></span> Red Outline
+                      </div>
+                      <div className="text-[10px] text-neutral-300 mt-1">Weather Warnings</div>
+                    </div>
+                  </div>
+                  <p className="text-neutral-400 text-[10px] mt-2">
+                    The active statement title automatically displays as a color-coded pulsing badge in the module's top title bar right next to the station name.
                   </p>
                 </div>
 

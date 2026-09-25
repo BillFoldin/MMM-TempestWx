@@ -141,6 +141,38 @@ async function startServer() {
     }
   });
 
+  // Built-in Node.js API call for NOAA National Weather Service (api.weather.gov) active alerts & statements
+  app.get('/api/noaa/alerts', async (req, res) => {
+    const lat = parseFloat(req.query.lat as string);
+    const lon = parseFloat(req.query.lon as string);
+
+    if (isNaN(lat) || isNaN(lon)) {
+      return res.status(400).json({ error: 'Valid lat and lon parameters are required for NOAA alerts API.' });
+    }
+
+    try {
+      const latStr = lat.toFixed(4);
+      const lonStr = lon.toFixed(4);
+      const alertsUrl = `https://api.weather.gov/alerts/active?point=${latStr},${lonStr}`;
+
+      const alertsRes = await fetch(alertsUrl, {
+        headers: {
+          'Accept': 'application/geo+json, application/json',
+          'User-Agent': 'MagicMirror-MMM-TempestWx/1.0 (https://github.com/BillFoldin/MMM-TempestWx)',
+        },
+      });
+
+      if (!alertsRes.ok) {
+        return res.json({ features: [] });
+      }
+
+      const alertsData = await alertsRes.json();
+      res.json(alertsData);
+    } catch (err: any) {
+      res.status(500).json({ error: err.message || 'Internal error fetching NOAA alerts' });
+    }
+  });
+
   // In development, hook into Vite middlewares
   if (!isProd) {
     const { createServer: createViteServer } = await import('vite');

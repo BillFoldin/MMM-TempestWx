@@ -24,6 +24,9 @@ Module.register("MMM-TempestWx", {
     showFeelsLike: true,        // Show "Feels like" temperature
     showDewPoint: true,         // Show dew point
     showTrendArrows: true,      // Show barometric pressure trend arrow (↗, →, ↘)
+    checkNoaaAlerts: true,      // Check NOAA.gov for special weather statements, watches, advisories & warnings
+    suppressUpdateAlerts: true,         // Automatically dismiss module update alert popups
+    broadcastSevereWeatherAlerts: true, // Keep and broadcast high-priority severe weather & lightning alerts to mirror
     stationName: "",            // Optional custom title (defaults to Tempest station name)
     animationSpeed: 0           // 0ms animation: prevents screen blink/flash on Raspberry Pi during polling
   },
@@ -40,6 +43,7 @@ Module.register("MMM-TempestWx", {
     this.modalOpen = false;
     this.modalCountdown = this.config.autoCloseModalSeconds;
     this.countdownTimer = null;
+    this.lastSevereAlertTime = 0;
 
     // Send config to node_helper to initiate API polling via built-in Node.js
     this.sendSocketNotification("CONFIG", this.config);
@@ -58,6 +62,28 @@ Module.register("MMM-TempestWx", {
     if (notification === "ALL_MODULES_STARTED" && !this.loaded) {
       Log.info("[MMM-TempestWx] All modules started, ensuring CONFIG sent to node_helper");
       this.sendSocketNotification("CONFIG", this.config);
+    }
+
+    // Suppress module update alerts while preserving severe weather alerts
+    if (this.config.suppressUpdateAlerts) {
+      if (notification === "MODULE_UPDATE") {
+        Log.info("[MMM-TempestWx] Suppressed MODULE_UPDATE notification.");
+        this.sendNotification("HIDE_ALERT");
+      } else if (notification === "SHOW_ALERT") {
+        const title = (payload && (payload.title || "")) + "";
+        const message = (payload && (payload.message || "")) + "";
+        const isUpdateAlert = title.toLowerCase().includes("update") || message.toLowerCase().includes("update");
+        const isWeatherAlert = title.toLowerCase().includes("weather") ||
+                               title.toLowerCase().includes("lightning") ||
+                               title.toLowerCase().includes("storm") ||
+                               title.toLowerCase().includes("warning") ||
+                               title.toLowerCase().includes("tempest");
+
+        if (isUpdateAlert && !isWeatherAlert) {
+          Log.info("[MMM-TempestWx] Intercepted and dismissed module update alert popup.");
+          this.sendNotification("HIDE_ALERT");
+        }
+      }
     }
   },
 
@@ -184,6 +210,27 @@ Module.register("MMM-TempestWx", {
       }
     }
 
+    // Update active NOAA weather statement / watch / advisory / warning outline and title badge
+    const activeAlert = this.stationData.active_alert || null;
+    card.classList.remove("has-noaa-warning", "has-noaa-advisory", "has-noaa-watch", "has-noaa-statement");
+    if (activeAlert) {
+      card.classList.add("has-noaa-" + activeAlert.level);
+    }
+
+    const alertSlot = card.querySelector(".tempest-alert-slot");
+    if (alertSlot) {
+      if (activeAlert) {
+        alertSlot.innerHTML = \`
+          <span class="tempest-noaa-badge badge-\${activeAlert.color}" title="\${this.escapeHtml(activeAlert.headline || activeAlert.event)}">
+            <span class="noaa-pulse-dot"></span>
+            <span class="noaa-badge-text">\${this.escapeHtml(activeAlert.event)}</span>
+          </span>
+        \`;
+      } else {
+        alertSlot.innerHTML = "";
+      }
+    }
+
     const lightningContainer = card.querySelector(".lightning-container");
     const hasLightning = obs.lightning_strike_count > 0 && obs.lightning_strike_last_distance > 0 && obs.lightning_strike_last_distance <= 45;
     if (lightningContainer) {
@@ -199,6 +246,20 @@ Module.register("MMM-TempestWx", {
           </div>
         \`;
         lightningContainer.style.display = "block";
+
+        // Broadcast severe weather alert to MagicMirror's alert module if configured
+        if (this.config.broadcastSevereWeatherAlerts && isSevereLightning) {
+          const now = Date.now();
+          if (!this.lastSevereAlertTime || now - this.lastSevereAlertTime > 10 * 60 * 1000) {
+            this.lastSevereAlertTime = now;
+            this.sendNotification("SHOW_ALERT", {
+              type: "alert",
+              title: "⚡ SEVERE LIGHTNING WARNING",
+              message: \`Severe lightning detected \${lightningDist} from station (\${obs.lightning_strike_count} strikes). Seek shelter indoors.\`,
+              timer: 15000
+            });
+          }
+        }
       } else {
         lightningContainer.innerHTML = "";
         lightningContainer.style.display = "none";
@@ -269,9 +330,15 @@ Module.register("MMM-TempestWx", {
       ? (obs.precip_accum_local_day * 0.0393701).toFixed(2) + " in"
       : obs.precip_accum_local_day.toFixed(1) + " mm";
 
-    // Build Module HTML
+    // Build Module HTML with active alert outline
+    const activeAlert = this.stationData.active_alert || null;
+    let alertCardClass = "";
+    if (activeAlert) {
+      alertCardClass = " has-noaa-" + activeAlert.level;
+    }
+
     const moduleContainer = document.createElement("div");
-    moduleContainer.className = "tempest-card" + (this.config.showModalOnTouch ? " touchable" : "");
+    moduleContainer.className = "tempest-card" + alertCardClass + (this.config.showModalOnTouch ? " touchable" : "");
 
     // Touch event to open detailed modal
     if (this.config.showModalOnTouch) {
@@ -282,9 +349,19 @@ Module.register("MMM-TempestWx", {
       });
     }
 
+    const alertBadgeHtml = activeAlert ? \`
+      <span class="tempest-noaa-badge badge-\${activeAlert.color}" title="\${this.escapeHtml(activeAlert.headline || activeAlert.event)}">
+        <span class="noaa-pulse-dot"></span>
+        <span class="noaa-badge-text">\${this.escapeHtml(activeAlert.event)}</span>
+      </span>
+    \` : "";
+
     moduleContainer.innerHTML = \`
       <div class="tempest-header">
-        <span class="tempest-title bright">\${this.config.stationName || obs.station_name || "TEMPEST WX"}</span>
+        <div class="tempest-title-area">
+          <span class="tempest-title bright">\${this.config.stationName || obs.station_name || "TEMPEST WX"}</span>
+          <span class="tempest-alert-slot">\${alertBadgeHtml}</span>
+        </div>
         <span class="tempest-touch-hint dimmed">Tap for Forecast</span>
       </div>
 
@@ -505,6 +582,23 @@ Module.register("MMM-TempestWx", {
     const isNoaa = String(this.stationData.forecast_source || this.config.weatherProvider || "tempest").toUpperCase() === "NOAA";
     const providerBadgeText = isNoaa ? "NOAA.gov" : "Tempest";
 
+    const activeAlert = this.stationData.active_alert || null;
+    let alertModalHtml = "";
+    if (activeAlert) {
+      alertModalHtml = \`
+        <div class="modal-alert-box alert-level-\${activeAlert.level} alert-color-\${activeAlert.color}">
+          <div class="modal-alert-head">
+            <span class="noaa-pulse-dot"></span>
+            <span class="modal-alert-event">NOAA \${this.escapeHtml(activeAlert.event)}</span>
+            <span class="modal-alert-badge">\${activeAlert.level.toUpperCase()}</span>
+          </div>
+          <div class="modal-alert-headline">\${this.escapeHtml(activeAlert.headline)}</div>
+          \${activeAlert.instruction ? \`<div class="modal-alert-instruction"><strong>Instruction:</strong> \${this.escapeHtml(activeAlert.instruction)}</div>\` : ""}
+          \${activeAlert.description ? \`<div class="modal-alert-desc">\${this.escapeHtml(activeAlert.description)}</div>\` : ""}
+        </div>
+      \`;
+    }
+
     modalBox.innerHTML = \`
       <div class="modal-head">
         <div>
@@ -513,6 +607,8 @@ Module.register("MMM-TempestWx", {
         </div>
         <button class="modal-close-btn bright" id="tempest-modal-close-btn">✕ Close</button>
       </div>
+
+      \${alertModalHtml}
 
       <div class="modal-section-title dimmed small">
         7-Day Extended Forecast <span class="tempest-provider-tag">\${providerBadgeText}</span>
@@ -1228,6 +1324,16 @@ Module.register("MMM-TempestWx", {
     }
 
     return "";
+  },
+
+  escapeHtml: function (str) {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 });
 `;
@@ -1413,36 +1519,38 @@ module.exports = NodeHelper.create({
         icon: forecastData?.current_conditions?.icon || (forecastData?.forecast?.daily?.[0]?.icon) || "clear-day"
       };
 
-      // Extract 7-day forecast based on configured weatherProvider ("tempest" or "NOAA")
+      // Resolve station geographic coordinates if needed for NOAA forecast or NOAA alerts
       const provider = String(this.config.weatherProvider || "tempest").trim();
       const isNoaa = provider.toUpperCase() === "NOAA";
+      const checkAlerts = this.config.checkNoaaAlerts !== false;
 
+      let lat = this.config.latitude !== undefined && this.config.latitude !== null ? Number(this.config.latitude) : null;
+      let lon = this.config.longitude !== undefined && this.config.longitude !== null ? Number(this.config.longitude) : null;
+
+      if ((isNoaa || checkAlerts) && (lat === null || lon === null || isNaN(lat) || isNaN(lon))) {
+        if (typeof forecastData?.latitude === "number" && typeof forecastData?.longitude === "number") {
+          lat = forecastData.latitude;
+          lon = forecastData.longitude;
+        } else {
+          try {
+            const stationInfoUrl = \`https://swd.weatherflow.com/swd/rest/stations/\${stationId}?token=\${token}\`;
+            const stationMeta = await this.httpGetJson(stationInfoUrl);
+            const st = stationMeta?.stations?.[0];
+            if (st && typeof st.latitude === "number" && typeof st.longitude === "number") {
+              lat = st.latitude;
+              lon = st.longitude;
+            }
+          } catch (metaErr) {
+            console.warn("[MMM-TempestWx] Could not fetch station coordinates for NOAA:", metaErr.message);
+          }
+        }
+      }
+
+      // Extract 7-day forecast based on configured weatherProvider ("tempest" or "NOAA")
       let forecastDaily = [];
       let forecastSource = "tempest";
 
       if (isNoaa) {
-        let lat = this.config.latitude !== undefined && this.config.latitude !== null ? Number(this.config.latitude) : null;
-        let lon = this.config.longitude !== undefined && this.config.longitude !== null ? Number(this.config.longitude) : null;
-
-        if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) {
-          if (typeof forecastData?.latitude === "number" && typeof forecastData?.longitude === "number") {
-            lat = forecastData.latitude;
-            lon = forecastData.longitude;
-          } else {
-            try {
-              const stationInfoUrl = \`https://swd.weatherflow.com/swd/rest/stations/\${stationId}?token=\${token}\`;
-              const stationMeta = await this.httpGetJson(stationInfoUrl);
-              const st = stationMeta?.stations?.[0];
-              if (st && typeof st.latitude === "number" && typeof st.longitude === "number") {
-                lat = st.latitude;
-                lon = st.longitude;
-              }
-            } catch (metaErr) {
-              console.warn("[MMM-TempestWx] Could not fetch station coordinates for NOAA:", metaErr.message);
-            }
-          }
-        }
-
         if (typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
           try {
             console.log(\`[MMM-TempestWx] Fetching NOAA 7-day forecast for coordinates: \${lat}, \${lon}\`);
@@ -1456,6 +1564,20 @@ module.exports = NodeHelper.create({
           }
         } else {
           console.warn("[MMM-TempestWx] Coordinates unavailable for NOAA forecast. Falling back to Tempest forecast.");
+        }
+      }
+
+      // Extract NOAA active weather statements, watches, advisories, and warnings
+      let noaaAlerts = [];
+      if (checkAlerts && typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
+        try {
+          console.log(\`[MMM-TempestWx] Checking NOAA.gov active weather statements & alerts for \${lat}, \${lon}\`);
+          noaaAlerts = await this.fetchNoaaAlerts(lat, lon);
+          if (noaaAlerts.length > 0) {
+            console.log(\`[MMM-TempestWx] Active NOAA alert found: \${noaaAlerts[0].event} (\${noaaAlerts[0].level} / \${noaaAlerts[0].color})\`);
+          }
+        } catch (alertErr) {
+          console.warn("[MMM-TempestWx] Error checking NOAA alerts:", alertErr.message);
         }
       }
 
@@ -1513,7 +1635,9 @@ module.exports = NodeHelper.create({
         observation: observation,
         forecast_daily: forecastDaily,
         forecast_hourly: forecastHourly,
-        forecast_source: forecastSource
+        forecast_source: forecastSource,
+        noaa_alerts: noaaAlerts,
+        active_alert: noaaAlerts.length > 0 ? noaaAlerts[0] : null
       });
     } catch (error) {
       console.error("[MMM-TempestWx] API fetch error:", error.message || error);
@@ -1528,6 +1652,81 @@ module.exports = NodeHelper.create({
         url: obsUrl
       });
     }
+  },
+
+  /**
+   * Fetch active weather statements, watches, advisories, and warnings from NOAA (api.weather.gov)
+   */
+  fetchNoaaAlerts: async function (latitude, longitude) {
+    if (typeof latitude !== "number" || typeof longitude !== "number" || isNaN(latitude) || isNaN(longitude)) {
+      return [];
+    }
+
+    const latStr = latitude.toFixed(4);
+    const lonStr = longitude.toFixed(4);
+    const alertsUrl = \`https://api.weather.gov/alerts/active?point=\${latStr},\${lonStr}\`;
+
+    try {
+      const alertsData = await this.httpGetJson(alertsUrl);
+      return this.parseNoaaAlerts(alertsData);
+    } catch (err) {
+      console.warn(\`[MMM-TempestWx] Could not fetch NOAA alerts for \${latStr},\${lonStr}:\`, err.message);
+      return [];
+    }
+  },
+
+  /**
+   * Parse NOAA National Weather Service alerts into standardized alerts array
+   */
+  parseNoaaAlerts: function (alertsData) {
+    const features = alertsData?.features || [];
+    if (!Array.isArray(features) || features.length === 0) return [];
+
+    const parsed = features.map((f) => {
+      const p = f.properties || {};
+      const event = (p.event || "Special Weather Statement").trim();
+      const lower = event.toLowerCase();
+
+      let level = "statement";
+      let color = "yellow";
+      let priority = 0;
+
+      if (lower.includes("warning")) {
+        level = "warning";
+        color = "red";
+        priority = 3;
+      } else if (lower.includes("advisory")) {
+        level = "advisory";
+        color = "orange";
+        priority = 2;
+      } else if (lower.includes("watch")) {
+        level = "watch";
+        color = "yellow";
+        priority = 1;
+      } else {
+        level = "statement";
+        color = "yellow";
+        priority = 0;
+      }
+
+      return {
+        event: event,
+        headline: p.headline || event,
+        description: p.description || "",
+        instruction: p.instruction || "",
+        severity: p.severity || "Unknown",
+        urgency: p.urgency || "Unknown",
+        certainty: p.certainty || "Unknown",
+        effective: p.effective || "",
+        expires: p.expires || "",
+        level: level,
+        color: color,
+        priority: priority
+      };
+    });
+
+    parsed.sort((a, b) => b.priority - a.priority);
+    return parsed;
   },
 
   /**
@@ -1731,6 +1930,23 @@ export function getMmmTempestWxCss(): string {
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+/* NOAA Weather Statement, Watch, Advisory & Warning Outlines */
+.tempest-card.has-noaa-warning {
+  border: 2px solid #ef4444 !important;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.55), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+.tempest-card.has-noaa-advisory {
+  border: 2px solid #f97316 !important;
+  box-shadow: 0 0 22px rgba(249, 115, 22, 0.5), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+.tempest-card.has-noaa-watch,
+.tempest-card.has-noaa-statement {
+  border: 2px solid #eab308 !important;
+  box-shadow: 0 0 22px rgba(234, 179, 8, 0.5), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
 .tempest-header {
   display: flex;
   justify-content: space-between;
@@ -1738,6 +1954,87 @@ export function getMmmTempestWxCss(): string {
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
   padding-bottom: 8px;
   margin-bottom: 12px;
+  gap: 12px;
+}
+
+.tempest-title-area {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tempest-alert-slot {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Statement/Alert Title Badge in Title Bar */
+.tempest-noaa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  vertical-align: middle;
+  line-height: 1.3;
+  animation: tempest-pulse 2.2s infinite ease-in-out;
+}
+
+.tempest-noaa-badge.badge-red {
+  background: rgba(127, 29, 29, 0.85);
+  border: 1px solid #ef4444;
+  color: #fecaca;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.tempest-noaa-badge.badge-orange {
+  background: rgba(124, 45, 18, 0.85);
+  border: 1px solid #f97316;
+  color: #fed7aa;
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
+}
+
+.tempest-noaa-badge.badge-yellow {
+  background: rgba(113, 63, 18, 0.85);
+  border: 1px solid #eab308;
+  color: #fef08a;
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.4);
+}
+
+.tempest-noaa-badge .noaa-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.tempest-noaa-badge.badge-red .noaa-pulse-dot {
+  background-color: #f87171;
+  box-shadow: 0 0 6px #ef4444;
+}
+
+.tempest-noaa-badge.badge-orange .noaa-pulse-dot {
+  background-color: #fb923c;
+  box-shadow: 0 0 6px #f97316;
+}
+
+.tempest-noaa-badge.badge-yellow .noaa-pulse-dot {
+  background-color: #facc15;
+  box-shadow: 0 0 6px #eab308;
+}
+
+.tempest-noaa-badge .noaa-badge-text {
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tempest-title {
@@ -2040,6 +2337,82 @@ export function getMmmTempestWxCss(): string {
 .modal-close-btn:hover,
 .modal-close-btn:active {
   background: #3f3f46 !important;
+}
+
+/* Modal Alert Box for NOAA Statements & Alerts */
+.modal-alert-box {
+  border-radius: 12px !important;
+  padding: 14px 18px !important;
+  margin-bottom: 20px !important;
+  text-align: left !important;
+  box-sizing: border-box !important;
+}
+
+.modal-alert-box.alert-color-red {
+  background: rgba(127, 29, 29, 0.45) !important;
+  border: 1.5px solid #ef4444 !important;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3) !important;
+  color: #fee2e2 !important;
+}
+
+.modal-alert-box.alert-color-orange {
+  background: rgba(124, 45, 18, 0.45) !important;
+  border: 1.5px solid #f97316 !important;
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.3) !important;
+  color: #ffedd5 !important;
+}
+
+.modal-alert-box.alert-color-yellow {
+  background: rgba(113, 63, 18, 0.45) !important;
+  border: 1.5px solid #eab308 !important;
+  box-shadow: 0 0 20px rgba(234, 179, 8, 0.3) !important;
+  color: #fef9c3 !important;
+}
+
+.modal-alert-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin-bottom: 6px !important;
+}
+
+.modal-alert-event {
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+}
+
+.modal-alert-badge {
+  font-size: 10px !important;
+  font-family: monospace !important;
+  padding: 1px 6px !important;
+  border-radius: 4px !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid currentColor !important;
+}
+
+.modal-alert-headline {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  margin-bottom: 6px !important;
+  line-height: 1.4 !important;
+}
+
+.modal-alert-instruction {
+  font-size: 12px !important;
+  margin-top: 8px !important;
+  padding-top: 8px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
+  line-height: 1.4 !important;
+  opacity: 0.95 !important;
+}
+
+.modal-alert-desc {
+  font-size: 12px !important;
+  margin-top: 6px !important;
+  line-height: 1.4 !important;
+  opacity: 0.85 !important;
 }
 
 .modal-section-title {
@@ -2644,6 +3017,9 @@ Add the module configuration block to your MagicMirror \`config/config.js\` file
     showFeelsLike: true,            // Show feels-like temperature in subtitle
     showDewPoint: true,             // Show dew point in telemetry bar
     showTrendArrows: true,          // Show barometric pressure rising/falling arrow
+    checkNoaaAlerts: true,          // Check NOAA.gov for special weather statements, watches, advisories & warnings
+    suppressUpdateAlerts: true,     // Automatically dismisses module update alert popups
+    broadcastSevereWeatherAlerts: true, // Keeps severe lightning and weather alert popups active
     animationSpeed: 0               // 0 = Instant in-place DOM updates (prevents screen flashing)
   }
 }
@@ -2654,10 +3030,13 @@ Add the module configuration block to your MagicMirror \`config/config.js\` file
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | \`stationId\` | \`string\` \| \`number\` | *Required* | Your WeatherFlow Tempest Station ID |
-| \`token\` | \`string\` | *Required* | Your Personal Use Access Token from Tempest |
+| \`token\` | \`string\` \| \`number\` | *Required* | Your Personal Use Access Token from Tempest |
 | \`weatherProvider\` | \`string\` | \`"tempest"\` | 7-day forecast source: \`"tempest"\` (WeatherFlow Better Forecast) or \`"NOAA"\` (api.weather.gov NWS) |
+| \`checkNoaaAlerts\` | \`boolean\` | \`true\` | Outlines module with color for NOAA statements/alerts and displays statement title in title bar |
 | \`latitude\` | \`number\` | \`null\` | Optional GPS latitude override for NOAA (auto-detected from station if omitted) |
 | \`longitude\` | \`number\` | \`null\` | Optional GPS longitude override for NOAA (auto-detected from station if omitted) |
+| \`suppressUpdateAlerts\` | \`boolean\` | \`true\` | Automatically intercepts and dismisses module update alert popups on the mirror |
+| \`broadcastSevereWeatherAlerts\` | \`boolean\` | \`true\` | Broadcasts high-priority alerts to MagicMirror's \`alert\` module for severe lightning and storms |
 | \`units\` | \`string\` | \`"imperial"\` | \`"imperial"\` (°F, mph, in) or \`"metric"\` (°C, km/h, mm) |
 | \`pressureUnit\` | \`string\` | \`"inHg"\` | Barometric pressure display unit: \`"inHg"\`, \`"hPa"\`, or \`"mb"\` |
 | \`updateInterval\` | \`number\` | \`60000\` | Frequency to fetch new observations in milliseconds (default: 60s) |
@@ -2667,6 +3046,60 @@ Add the module configuration block to your MagicMirror \`config/config.js\` file
 | \`showDewPoint\` | \`boolean\` | \`true\` | Displays calculated dew point in telemetry metrics |
 | \`showTrendArrows\` | \`boolean\` | \`true\` | Displays rising (↗), steady (→), or falling (↘) barometric trend |
 | \`animationSpeed\` | \`number\` | \`0\` | Milliseconds for module refresh. Set to \`0\` to prevent screen flashing |
+
+---
+
+## NOAA Special Weather Statements & Alerts (Color Outlines)
+
+When \`checkNoaaAlerts: true\` is enabled (default), \`MMM-TempestWx\` checks the US National Weather Service (\`api.weather.gov/alerts/active\`) for your station's latitude/longitude:
+
+- 🟡 **Watches & Special Weather Statements**: Yellow module outline with ambient yellow glow.
+- 🟠 **Advisories**: Orange module outline with ambient orange glow.
+- 🔴 **Warnings**: Red module outline with ambient red glow.
+- 🏷️ **Title Bar Statement Badge**: The exact title/event of the active statement or warning is displayed directly in the top title bar of the module next to your weather station name with a pulsing indicator.
+- 📱 **Interactive Modal**: Tapping the module opens the detailed modal displaying the full NOAA statement headline, safety instructions, and description.
+
+---
+
+---
+
+## Disabling Module Update Alerts While Keeping Severe Weather Alerts
+
+If you want to remove the annoying **"Update Available"** alert banners for installed modules while keeping all **Severe Weather & Lightning Alerts** fully operational on your mirror:
+
+### 1. In your MagicMirror \`config/config.js\`:
+
+Keep the default \`alert\` module active (so weather warnings pop up), and disable or silence \`updatenotification\`:
+
+\`\`\`javascript
+// Keep 'alert' so severe weather, lightning warnings, and timers work:
+{
+  module: "alert",
+},
+
+// Disable 'updatenotification' to stop module update alert banners:
+{
+  module: "updatenotification",
+  disabled: true // Turns off module update alert banners entirely
+},
+\`\`\`
+
+Alternatively, if you still want to check core MagicMirror updates but ignore \`MMM-TempestWx\`:
+
+\`\`\`javascript
+{
+  module: "updatenotification",
+  position: "top_bar",
+  config: {
+    sendUpdatesNotifications: false, // Prevents popup alerts
+    ignoreModules: ["MMM-TempestWx"] // Ignores MMM-TempestWx checks
+  }
+},
+\`\`\`
+
+### 2. Built-in Auto-Suppression:
+
+\`MMM-TempestWx\` comes preconfigured with \`suppressUpdateAlerts: true\`. If an update notification popup is broadcast by any module, \`MMM-TempestWx\` automatically dismisses it while keeping severe weather alerts (lightning strikes within 10 km / 6 mi, storm warnings) active.
 
 ---
 

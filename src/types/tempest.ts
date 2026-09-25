@@ -62,6 +62,23 @@ export interface HourlyForecast {
   precip_probability: number; // %
 }
 
+export type NoaaAlertLevel = 'warning' | 'advisory' | 'watch' | 'statement';
+
+export interface NoaaWeatherAlert {
+  event: string;
+  headline: string;
+  description: string;
+  instruction?: string;
+  severity?: string;
+  urgency?: string;
+  certainty?: string;
+  effective?: string;
+  expires?: string;
+  level: NoaaAlertLevel;
+  color: 'red' | 'orange' | 'yellow';
+  priority: number;
+}
+
 export interface TempestStationData {
   station_id: string;
   station_name: string;
@@ -70,6 +87,8 @@ export interface TempestStationData {
   forecast_daily: DailyForecast[];
   forecast_hourly: HourlyForecast[];
   forecast_source?: WeatherProvider;
+  noaa_alerts?: NoaaWeatherAlert[];
+  active_alert?: NoaaWeatherAlert | null;
   is_live: boolean;
   error?: string | null;
 }
@@ -78,6 +97,7 @@ export interface ModuleConfig {
   stationId: string;
   token: string;
   weatherProvider?: WeatherProvider; // 'tempest' (default) or 'NOAA'
+  checkNoaaAlerts?: boolean;          // Check NOAA.gov for special weather statements & alerts (default: true)
   latitude?: number;                 // optional coordinate override for NOAA
   longitude?: number;                // optional coordinate override for NOAA
   units: Units;
@@ -88,6 +108,8 @@ export interface ModuleConfig {
   showDewPoint: boolean;
   showFeelsLike: boolean;
   showTrendArrows: boolean;
+  suppressUpdateAlerts?: boolean;         // Suppress and dismiss module update alert popups
+  broadcastSevereWeatherAlerts?: boolean; // Send high-priority alert popups for severe lightning/weather
   compactMode: boolean;
   mirrorPosition: MirrorPosition;
   theme: 'native-mirror' | 'ambient-glass';

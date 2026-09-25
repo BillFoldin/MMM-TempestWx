@@ -62,6 +62,9 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
     showFeelsLike: true,            // Show feels-like temperature in subtitle
     showDewPoint: true,             // Show dew point in telemetry bar
     showTrendArrows: true,          // Show barometric pressure rising/falling arrow
+    checkNoaaAlerts: true,          // Check NOAA.gov for special weather statements, watches, advisories & warnings
+    suppressUpdateAlerts: true,     // Automatically dismisses module update alert popups
+    broadcastSevereWeatherAlerts: true, // Keeps severe lightning and weather alert popups active
     animationSpeed: 0               // 0 = Instant in-place DOM updates (prevents screen flashing)
   }
 }
@@ -72,10 +75,13 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
 | Option | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
 | `stationId` | `string` | `number` | *Required* | Your WeatherFlow Tempest Station ID |
-| `token` | `string` | *Required* | Your Personal Use Access Token from Tempest |
+| `token` | `string` | `number` | *Required* | Your Personal Use Access Token from Tempest |
 | `weatherProvider` | `string` | `"tempest"` | 7-day forecast source: `"tempest"` (WeatherFlow Better Forecast) or `"NOAA"` (api.weather.gov NWS) |
+| `checkNoaaAlerts` | `boolean` | `true` | Outlines module with color for NOAA statements/alerts and displays statement title in title bar |
 | `latitude` | `number` | `null` | Optional GPS latitude override for NOAA (auto-detected from station if omitted) |
 | `longitude` | `number` | `null` | Optional GPS longitude override for NOAA (auto-detected from station if omitted) |
+| `suppressUpdateAlerts` | `boolean` | `true` | Automatically intercepts and dismisses module update alert popups on the mirror |
+| `broadcastSevereWeatherAlerts` | `boolean` | `true` | Broadcasts high-priority alerts to MagicMirror's `alert` module for severe lightning and storms |
 | `units` | `string` | `"imperial"` | `"imperial"` (°F, mph, in) or `"metric"` (°C, km/h, mm) |
 | `pressureUnit` | `string` | `"inHg"` | Barometric pressure display unit: `"inHg"`, `"hPa"`, or `"mb"` |
 | `updateInterval` | `number` | `60000` | Frequency to fetch new observations in milliseconds (default: 60s) |
@@ -85,6 +91,60 @@ Add the module configuration block to your MagicMirror `config/config.js` file:
 | `showDewPoint` | `boolean` | `true` | Displays calculated dew point in telemetry metrics |
 | `showTrendArrows` | `boolean` | `true` | Displays rising (↗), steady (→), or falling (↘) barometric trend |
 | `animationSpeed` | `number` | `0` | Milliseconds for module refresh. Set to `0` to prevent screen flashing |
+
+---
+
+## NOAA Special Weather Statements & Alerts (Color Outlines)
+
+When `checkNoaaAlerts: true` is enabled (default), `MMM-TempestWx` checks the US National Weather Service (`api.weather.gov/alerts/active`) for your station's latitude/longitude:
+
+- 🟡 **Watches & Special Weather Statements**: Yellow module outline with ambient yellow glow.
+- 🟠 **Advisories**: Orange module outline with ambient orange glow.
+- 🔴 **Warnings**: Red module outline with ambient red glow.
+- 🏷️ **Title Bar Statement Badge**: The exact title/event of the active statement or warning is displayed directly in the top title bar of the module next to your weather station name with a pulsing indicator.
+- 📱 **Interactive Modal**: Tapping the module opens the detailed modal displaying the full NOAA statement headline, safety instructions, and description.
+
+---
+
+---
+
+## Disabling Module Update Alerts While Keeping Severe Weather Alerts
+
+If you want to remove the annoying **"Update Available"** alert banners for installed modules while keeping all **Severe Weather & Lightning Alerts** fully operational on your mirror:
+
+### 1. In your MagicMirror `config/config.js`:
+
+Keep the default `alert` module active (so weather warnings pop up), and disable or silence `updatenotification`:
+
+```javascript
+// Keep 'alert' so severe weather, lightning warnings, and timers work:
+{
+  module: "alert",
+},
+
+// Disable 'updatenotification' to stop module update alert banners:
+{
+  module: "updatenotification",
+  disabled: true // Turns off module update alert banners entirely
+},
+```
+
+Alternatively, if you still want to check core MagicMirror updates but ignore `MMM-TempestWx`:
+
+```javascript
+{
+  module: "updatenotification",
+  position: "top_bar",
+  config: {
+    sendUpdatesNotifications: false, // Prevents popup alerts
+    ignoreModules: ["MMM-TempestWx"] // Ignores MMM-TempestWx checks
+  }
+},
+```
+
+### 2. Built-in Auto-Suppression:
+
+`MMM-TempestWx` comes preconfigured with `suppressUpdateAlerts: true`. If an update notification popup is broadcast by any module, `MMM-TempestWx` automatically dismisses it while keeping severe weather alerts (lightning strikes within 10 km / 6 mi, storm warnings) active.
 
 ---
 

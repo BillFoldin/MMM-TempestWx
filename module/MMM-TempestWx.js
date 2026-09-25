@@ -21,6 +21,9 @@ Module.register("MMM-TempestWx", {
     showFeelsLike: true,        // Show "Feels like" temperature
     showDewPoint: true,         // Show dew point
     showTrendArrows: true,      // Show barometric pressure trend arrow (↗, →, ↘)
+    checkNoaaAlerts: true,      // Check NOAA.gov for special weather statements, watches, advisories & warnings
+    suppressUpdateAlerts: true,         // Automatically dismiss module update alert popups
+    broadcastSevereWeatherAlerts: true, // Keep and broadcast high-priority severe weather & lightning alerts to mirror
     stationName: "",            // Optional custom title (defaults to Tempest station name)
     animationSpeed: 0           // 0ms animation: prevents screen blink/flash on Raspberry Pi during polling
   },
@@ -37,6 +40,7 @@ Module.register("MMM-TempestWx", {
     this.modalOpen = false;
     this.modalCountdown = this.config.autoCloseModalSeconds;
     this.countdownTimer = null;
+    this.lastSevereAlertTime = 0;
 
     // Send config to node_helper to initiate API polling via built-in Node.js
     this.sendSocketNotification("CONFIG", this.config);
@@ -55,6 +59,28 @@ Module.register("MMM-TempestWx", {
     if (notification === "ALL_MODULES_STARTED" && !this.loaded) {
       Log.info("[MMM-TempestWx] All modules started, ensuring CONFIG sent to node_helper");
       this.sendSocketNotification("CONFIG", this.config);
+    }
+
+    // Suppress module update alerts while preserving severe weather alerts
+    if (this.config.suppressUpdateAlerts) {
+      if (notification === "MODULE_UPDATE") {
+        Log.info("[MMM-TempestWx] Suppressed MODULE_UPDATE notification.");
+        this.sendNotification("HIDE_ALERT");
+      } else if (notification === "SHOW_ALERT") {
+        const title = (payload && (payload.title || "")) + "";
+        const message = (payload && (payload.message || "")) + "";
+        const isUpdateAlert = title.toLowerCase().includes("update") || message.toLowerCase().includes("update");
+        const isWeatherAlert = title.toLowerCase().includes("weather") ||
+                               title.toLowerCase().includes("lightning") ||
+                               title.toLowerCase().includes("storm") ||
+                               title.toLowerCase().includes("warning") ||
+                               title.toLowerCase().includes("tempest");
+
+        if (isUpdateAlert && !isWeatherAlert) {
+          Log.info("[MMM-TempestWx] Intercepted and dismissed module update alert popup.");
+          this.sendNotification("HIDE_ALERT");
+        }
+      }
     }
   },
 
@@ -181,6 +207,27 @@ Module.register("MMM-TempestWx", {
       }
     }
 
+    // Update active NOAA weather statement / watch / advisory / warning outline and title badge
+    const activeAlert = this.stationData.active_alert || null;
+    card.classList.remove("has-noaa-warning", "has-noaa-advisory", "has-noaa-watch", "has-noaa-statement");
+    if (activeAlert) {
+      card.classList.add("has-noaa-" + activeAlert.level);
+    }
+
+    const alertSlot = card.querySelector(".tempest-alert-slot");
+    if (alertSlot) {
+      if (activeAlert) {
+        alertSlot.innerHTML = `
+          <span class="tempest-noaa-badge badge-${activeAlert.color}" title="${this.escapeHtml(activeAlert.headline || activeAlert.event)}">
+            <span class="noaa-pulse-dot"></span>
+            <span class="noaa-badge-text">${this.escapeHtml(activeAlert.event)}</span>
+          </span>
+        `;
+      } else {
+        alertSlot.innerHTML = "";
+      }
+    }
+
     const lightningContainer = card.querySelector(".lightning-container");
     const hasLightning = obs.lightning_strike_count > 0 && obs.lightning_strike_last_distance > 0 && obs.lightning_strike_last_distance <= 45;
     if (lightningContainer) {
@@ -196,6 +243,20 @@ Module.register("MMM-TempestWx", {
           </div>
         `;
         lightningContainer.style.display = "block";
+
+        // Broadcast severe weather alert to MagicMirror's alert module if configured
+        if (this.config.broadcastSevereWeatherAlerts && isSevereLightning) {
+          const now = Date.now();
+          if (!this.lastSevereAlertTime || now - this.lastSevereAlertTime > 10 * 60 * 1000) {
+            this.lastSevereAlertTime = now;
+            this.sendNotification("SHOW_ALERT", {
+              type: "alert",
+              title: "⚡ SEVERE LIGHTNING WARNING",
+              message: `Severe lightning detected ${lightningDist} from station (${obs.lightning_strike_count} strikes). Seek shelter indoors.`,
+              timer: 15000
+            });
+          }
+        }
       } else {
         lightningContainer.innerHTML = "";
         lightningContainer.style.display = "none";
@@ -266,9 +327,15 @@ Module.register("MMM-TempestWx", {
       ? (obs.precip_accum_local_day * 0.0393701).toFixed(2) + " in"
       : obs.precip_accum_local_day.toFixed(1) + " mm";
 
-    // Build Module HTML
+    // Build Module HTML with active alert outline
+    const activeAlert = this.stationData.active_alert || null;
+    let alertCardClass = "";
+    if (activeAlert) {
+      alertCardClass = " has-noaa-" + activeAlert.level;
+    }
+
     const moduleContainer = document.createElement("div");
-    moduleContainer.className = "tempest-card" + (this.config.showModalOnTouch ? " touchable" : "");
+    moduleContainer.className = "tempest-card" + alertCardClass + (this.config.showModalOnTouch ? " touchable" : "");
 
     // Touch event to open detailed modal
     if (this.config.showModalOnTouch) {
@@ -279,9 +346,19 @@ Module.register("MMM-TempestWx", {
       });
     }
 
+    const alertBadgeHtml = activeAlert ? `
+      <span class="tempest-noaa-badge badge-${activeAlert.color}" title="${this.escapeHtml(activeAlert.headline || activeAlert.event)}">
+        <span class="noaa-pulse-dot"></span>
+        <span class="noaa-badge-text">${this.escapeHtml(activeAlert.event)}</span>
+      </span>
+    ` : "";
+
     moduleContainer.innerHTML = `
       <div class="tempest-header">
-        <span class="tempest-title bright">${this.config.stationName || obs.station_name || "TEMPEST WX"}</span>
+        <div class="tempest-title-area">
+          <span class="tempest-title bright">${this.config.stationName || obs.station_name || "TEMPEST WX"}</span>
+          <span class="tempest-alert-slot">${alertBadgeHtml}</span>
+        </div>
         <span class="tempest-touch-hint dimmed">Tap for Forecast</span>
       </div>
 
@@ -502,6 +579,23 @@ Module.register("MMM-TempestWx", {
     const isNoaa = String(this.stationData.forecast_source || this.config.weatherProvider || "tempest").toUpperCase() === "NOAA";
     const providerBadgeText = isNoaa ? "NOAA.gov" : "Tempest";
 
+    const activeAlert = this.stationData.active_alert || null;
+    let alertModalHtml = "";
+    if (activeAlert) {
+      alertModalHtml = `
+        <div class="modal-alert-box alert-level-${activeAlert.level} alert-color-${activeAlert.color}">
+          <div class="modal-alert-head">
+            <span class="noaa-pulse-dot"></span>
+            <span class="modal-alert-event">NOAA ${this.escapeHtml(activeAlert.event)}</span>
+            <span class="modal-alert-badge">${activeAlert.level.toUpperCase()}</span>
+          </div>
+          <div class="modal-alert-headline">${this.escapeHtml(activeAlert.headline)}</div>
+          ${activeAlert.instruction ? `<div class="modal-alert-instruction"><strong>Instruction:</strong> ${this.escapeHtml(activeAlert.instruction)}</div>` : ""}
+          ${activeAlert.description ? `<div class="modal-alert-desc">${this.escapeHtml(activeAlert.description)}</div>` : ""}
+        </div>
+      `;
+    }
+
     modalBox.innerHTML = `
       <div class="modal-head">
         <div>
@@ -510,6 +604,8 @@ Module.register("MMM-TempestWx", {
         </div>
         <button class="modal-close-btn bright" id="tempest-modal-close-btn">✕ Close</button>
       </div>
+
+      ${alertModalHtml}
 
       <div class="modal-section-title dimmed small">
         7-Day Extended Forecast <span class="tempest-provider-tag">${providerBadgeText}</span>
@@ -1225,5 +1321,15 @@ Module.register("MMM-TempestWx", {
     }
 
     return "";
+  },
+
+  escapeHtml: function (str) {
+    if (!str) return "";
+    return String(str)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#039;");
   }
 });

@@ -294,6 +294,7 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
               <TempestWxModule
                 observation={stationData.observation}
                 config={config}
+                activeAlert={stationData.active_alert}
                 onOpenModal={onOpenModal}
               />
             </div>
@@ -307,6 +308,7 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
               <TempestWxModule
                 observation={stationData.observation}
                 config={config}
+                activeAlert={stationData.active_alert}
                 onOpenModal={onOpenModal}
               />
             </div>
@@ -321,6 +323,7 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
               <TempestWxModule
                 observation={stationData.observation}
                 config={config}
+                activeAlert={stationData.active_alert}
                 onOpenModal={onOpenModal}
               />
             </div>
@@ -349,6 +352,7 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
               <TempestWxModule
                 observation={stationData.observation}
                 config={config}
+                activeAlert={stationData.active_alert}
                 onOpenModal={onOpenModal}
               />
             </div>

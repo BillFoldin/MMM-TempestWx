@@ -177,36 +177,38 @@ module.exports = NodeHelper.create({
         icon: forecastData?.current_conditions?.icon || (forecastData?.forecast?.daily?.[0]?.icon) || "clear-day"
       };
 
-      // Extract 7-day forecast based on configured weatherProvider ("tempest" or "NOAA")
+      // Resolve station geographic coordinates if needed for NOAA forecast or NOAA alerts
       const provider = String(this.config.weatherProvider || "tempest").trim();
       const isNoaa = provider.toUpperCase() === "NOAA";
+      const checkAlerts = this.config.checkNoaaAlerts !== false;
 
+      let lat = this.config.latitude !== undefined && this.config.latitude !== null ? Number(this.config.latitude) : null;
+      let lon = this.config.longitude !== undefined && this.config.longitude !== null ? Number(this.config.longitude) : null;
+
+      if ((isNoaa || checkAlerts) && (lat === null || lon === null || isNaN(lat) || isNaN(lon))) {
+        if (typeof forecastData?.latitude === "number" && typeof forecastData?.longitude === "number") {
+          lat = forecastData.latitude;
+          lon = forecastData.longitude;
+        } else {
+          try {
+            const stationInfoUrl = `https://swd.weatherflow.com/swd/rest/stations/${stationId}?token=${token}`;
+            const stationMeta = await this.httpGetJson(stationInfoUrl);
+            const st = stationMeta?.stations?.[0];
+            if (st && typeof st.latitude === "number" && typeof st.longitude === "number") {
+              lat = st.latitude;
+              lon = st.longitude;
+            }
+          } catch (metaErr) {
+            console.warn("[MMM-TempestWx] Could not fetch station coordinates for NOAA:", metaErr.message);
+          }
+        }
+      }
+
+      // Extract 7-day forecast based on configured weatherProvider ("tempest" or "NOAA")
       let forecastDaily = [];
       let forecastSource = "tempest";
 
       if (isNoaa) {
-        let lat = this.config.latitude !== undefined && this.config.latitude !== null ? Number(this.config.latitude) : null;
-        let lon = this.config.longitude !== undefined && this.config.longitude !== null ? Number(this.config.longitude) : null;
-
-        if (lat === null || lon === null || isNaN(lat) || isNaN(lon)) {
-          if (typeof forecastData?.latitude === "number" && typeof forecastData?.longitude === "number") {
-            lat = forecastData.latitude;
-            lon = forecastData.longitude;
-          } else {
-            try {
-              const stationInfoUrl = `https://swd.weatherflow.com/swd/rest/stations/${stationId}?token=${token}`;
-              const stationMeta = await this.httpGetJson(stationInfoUrl);
-              const st = stationMeta?.stations?.[0];
-              if (st && typeof st.latitude === "number" && typeof st.longitude === "number") {
-                lat = st.latitude;
-                lon = st.longitude;
-              }
-            } catch (metaErr) {
-              console.warn("[MMM-TempestWx] Could not fetch station coordinates for NOAA:", metaErr.message);
-            }
-          }
-        }
-
         if (typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
           try {
             console.log(`[MMM-TempestWx] Fetching NOAA 7-day forecast for coordinates: ${lat}, ${lon}`);
@@ -220,6 +222,20 @@ module.exports = NodeHelper.create({
           }
         } else {
           console.warn("[MMM-TempestWx] Coordinates unavailable for NOAA forecast. Falling back to Tempest forecast.");
+        }
+      }
+
+      // Extract NOAA active weather statements, watches, advisories, and warnings
+      let noaaAlerts = [];
+      if (checkAlerts && typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
+        try {
+          console.log(`[MMM-TempestWx] Checking NOAA.gov active weather statements & alerts for ${lat}, ${lon}`);
+          noaaAlerts = await this.fetchNoaaAlerts(lat, lon);
+          if (noaaAlerts.length > 0) {
+            console.log(`[MMM-TempestWx] Active NOAA alert found: ${noaaAlerts[0].event} (${noaaAlerts[0].level} / ${noaaAlerts[0].color})`);
+          }
+        } catch (alertErr) {
+          console.warn("[MMM-TempestWx] Error checking NOAA alerts:", alertErr.message);
         }
       }
 
@@ -277,7 +293,9 @@ module.exports = NodeHelper.create({
         observation: observation,
         forecast_daily: forecastDaily,
         forecast_hourly: forecastHourly,
-        forecast_source: forecastSource
+        forecast_source: forecastSource,
+        noaa_alerts: noaaAlerts,
+        active_alert: noaaAlerts.length > 0 ? noaaAlerts[0] : null
       });
     } catch (error) {
       console.error("[MMM-TempestWx] API fetch error:", error.message || error);
@@ -292,6 +310,81 @@ module.exports = NodeHelper.create({
         url: obsUrl
       });
     }
+  },
+
+  /**
+   * Fetch active weather statements, watches, advisories, and warnings from NOAA (api.weather.gov)
+   */
+  fetchNoaaAlerts: async function (latitude, longitude) {
+    if (typeof latitude !== "number" || typeof longitude !== "number" || isNaN(latitude) || isNaN(longitude)) {
+      return [];
+    }
+
+    const latStr = latitude.toFixed(4);
+    const lonStr = longitude.toFixed(4);
+    const alertsUrl = `https://api.weather.gov/alerts/active?point=${latStr},${lonStr}`;
+
+    try {
+      const alertsData = await this.httpGetJson(alertsUrl);
+      return this.parseNoaaAlerts(alertsData);
+    } catch (err) {
+      console.warn(`[MMM-TempestWx] Could not fetch NOAA alerts for ${latStr},${lonStr}:`, err.message);
+      return [];
+    }
+  },
+
+  /**
+   * Parse NOAA National Weather Service alerts into standardized alerts array
+   */
+  parseNoaaAlerts: function (alertsData) {
+    const features = alertsData?.features || [];
+    if (!Array.isArray(features) || features.length === 0) return [];
+
+    const parsed = features.map((f) => {
+      const p = f.properties || {};
+      const event = (p.event || "Special Weather Statement").trim();
+      const lower = event.toLowerCase();
+
+      let level = "statement";
+      let color = "yellow";
+      let priority = 0;
+
+      if (lower.includes("warning")) {
+        level = "warning";
+        color = "red";
+        priority = 3;
+      } else if (lower.includes("advisory")) {
+        level = "advisory";
+        color = "orange";
+        priority = 2;
+      } else if (lower.includes("watch")) {
+        level = "watch";
+        color = "yellow";
+        priority = 1;
+      } else {
+        level = "statement";
+        color = "yellow";
+        priority = 0;
+      }
+
+      return {
+        event: event,
+        headline: p.headline || event,
+        description: p.description || "",
+        instruction: p.instruction || "",
+        severity: p.severity || "Unknown",
+        urgency: p.urgency || "Unknown",
+        certainty: p.certainty || "Unknown",
+        effective: p.effective || "",
+        expires: p.expires || "",
+        level: level,
+        color: color,
+        priority: priority
+      };
+    });
+
+    parsed.sort((a, b) => b.priority - a.priority);
+    return parsed;
   },
 
   /**

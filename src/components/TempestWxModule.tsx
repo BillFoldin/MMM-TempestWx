@@ -1,5 +1,5 @@
 import React from 'react';
-import { TempestObservation, ModuleConfig } from '../types/tempest.ts';
+import { TempestObservation, ModuleConfig, NoaaWeatherAlert } from '../types/tempest.ts';
 import {
   formatTemp,
   formatPressure,
@@ -23,6 +23,7 @@ import {
 interface TempestWxModuleProps {
   observation: TempestObservation;
   config: ModuleConfig;
+  activeAlert?: NoaaWeatherAlert | null;
   onOpenModal?: () => void;
   isTouchScreen?: boolean;
 }
@@ -30,6 +31,7 @@ interface TempestWxModuleProps {
 export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
   observation,
   config,
+  activeAlert,
   onOpenModal,
 }) => {
   const pressureFormatted = formatPressure(
@@ -62,6 +64,16 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
   const currentCondition = observation.conditions || (isNight ? 'Clear Night' : 'Partly Cloudy');
   const currentIcon = observation.icon || (isNight ? 'clear-night' : 'partly-cloudy');
 
+  const outlineClasses = activeAlert
+    ? activeAlert.color === 'red'
+      ? 'border-2 border-red-500 shadow-[0_0_24px_rgba(239,68,68,0.5)]'
+      : activeAlert.color === 'orange'
+      ? 'border-2 border-orange-500 shadow-[0_0_24px_rgba(249,115,22,0.5)]'
+      : 'border-2 border-yellow-400 shadow-[0_0_24px_rgba(234,179,8,0.5)]'
+    : config.theme === 'ambient-glass'
+    ? 'border border-neutral-800/80 shadow-2xl'
+    : 'border border-neutral-800/60 hover:border-neutral-700/80 shadow-xl';
+
   return (
     <div
       onClick={handleClick}
@@ -73,22 +85,45 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
         }
       }}
       aria-label="TempestWx module. Click or tap for 7-day forecast and hourly wind trends."
-      className={`group relative select-none cursor-pointer rounded-2xl p-5 sm:p-6 transition-all duration-200 min-w-[320px] sm:min-w-[360px] ${
-        config.theme === 'ambient-glass'
-          ? 'bg-neutral-900/60 backdrop-blur-md border border-neutral-800/80 shadow-2xl'
-          : 'bg-black/95 hover:bg-neutral-950 border border-neutral-800/60 hover:border-neutral-700/80 shadow-xl'
-      }`}
+      className={`group relative select-none cursor-pointer rounded-2xl p-5 sm:p-6 transition-all duration-300 min-w-[320px] sm:min-w-[360px] ${
+        config.theme === 'ambient-glass' ? 'bg-neutral-900/60 backdrop-blur-md' : 'bg-black/95 hover:bg-neutral-950'
+      } ${outlineClasses}`}
     >
       {/* Module Title / Kicker in native MagicMirror typography (Increased Font Size) */}
       <div className="flex items-center justify-between gap-3 mb-3 border-b border-neutral-800/60 pb-2">
-        <div className="flex items-center gap-2.5">
-          <span className="text-xs sm:text-sm font-semibold tracking-widest text-neutral-300 uppercase font-sans">
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
+          <span className="text-xs sm:text-sm font-semibold tracking-widest text-neutral-300 uppercase font-sans shrink-0">
             TempestWx
           </span>
-          <span className="text-neutral-600 text-sm">·</span>
-          <span className="text-xs sm:text-sm text-neutral-400 font-sans font-medium truncate max-w-[170px]">
+          <span className="text-neutral-600 text-sm shrink-0">·</span>
+          <span className="text-xs sm:text-sm text-neutral-400 font-sans font-medium truncate max-w-[130px] sm:max-w-[170px]">
             {observation.station_name || 'Tempest Station'}
           </span>
+
+          {/* NOAA Weather Statement / Watch / Advisory / Warning badge next to station name */}
+          {activeAlert && (
+            <span
+              className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full text-[10px] sm:text-[11px] font-bold tracking-wide uppercase border animate-pulse ${
+                activeAlert.color === 'red'
+                  ? 'bg-red-950/80 border-red-500 text-red-300 shadow-[0_0_10px_rgba(239,68,68,0.4)]'
+                  : activeAlert.color === 'orange'
+                  ? 'bg-orange-950/80 border-orange-500 text-orange-300 shadow-[0_0_10px_rgba(249,115,22,0.4)]'
+                  : 'bg-yellow-950/80 border-yellow-400 text-yellow-300 shadow-[0_0_10px_rgba(234,179,8,0.4)]'
+              }`}
+              title={activeAlert.headline || activeAlert.event}
+            >
+              <span
+                className={`w-1.5 h-1.5 rounded-full shrink-0 ${
+                  activeAlert.color === 'red'
+                    ? 'bg-red-400'
+                    : activeAlert.color === 'orange'
+                    ? 'bg-orange-400'
+                    : 'bg-yellow-400'
+                }`}
+              />
+              <span className="truncate max-w-[130px] sm:max-w-[180px]">{activeAlert.event}</span>
+            </span>
+          )}
         </div>
 
         {/* Touch interactive cue */}

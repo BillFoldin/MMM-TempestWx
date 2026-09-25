@@ -30,6 +30,23 @@
   border-color: rgba(255, 255, 255, 0.3);
 }
 
+/* NOAA Weather Statement, Watch, Advisory & Warning Outlines */
+.tempest-card.has-noaa-warning {
+  border: 2px solid #ef4444 !important;
+  box-shadow: 0 0 24px rgba(239, 68, 68, 0.55), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+.tempest-card.has-noaa-advisory {
+  border: 2px solid #f97316 !important;
+  box-shadow: 0 0 22px rgba(249, 115, 22, 0.5), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
+.tempest-card.has-noaa-watch,
+.tempest-card.has-noaa-statement {
+  border: 2px solid #eab308 !important;
+  box-shadow: 0 0 22px rgba(234, 179, 8, 0.5), 0 8px 32px rgba(0, 0, 0, 0.5) !important;
+}
+
 .tempest-header {
   display: flex;
   justify-content: space-between;
@@ -37,6 +54,87 @@
   border-bottom: 1px solid rgba(255, 255, 255, 0.14);
   padding-bottom: 8px;
   margin-bottom: 12px;
+  gap: 12px;
+}
+
+.tempest-title-area {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-width: 0;
+}
+
+.tempest-alert-slot {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* Statement/Alert Title Badge in Title Bar */
+.tempest-noaa-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  vertical-align: middle;
+  line-height: 1.3;
+  animation: tempest-pulse 2.2s infinite ease-in-out;
+}
+
+.tempest-noaa-badge.badge-red {
+  background: rgba(127, 29, 29, 0.85);
+  border: 1px solid #ef4444;
+  color: #fecaca;
+  box-shadow: 0 0 10px rgba(239, 68, 68, 0.4);
+}
+
+.tempest-noaa-badge.badge-orange {
+  background: rgba(124, 45, 18, 0.85);
+  border: 1px solid #f97316;
+  color: #fed7aa;
+  box-shadow: 0 0 10px rgba(249, 115, 22, 0.4);
+}
+
+.tempest-noaa-badge.badge-yellow {
+  background: rgba(113, 63, 18, 0.85);
+  border: 1px solid #eab308;
+  color: #fef08a;
+  box-shadow: 0 0 10px rgba(234, 179, 8, 0.4);
+}
+
+.tempest-noaa-badge .noaa-pulse-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+
+.tempest-noaa-badge.badge-red .noaa-pulse-dot {
+  background-color: #f87171;
+  box-shadow: 0 0 6px #ef4444;
+}
+
+.tempest-noaa-badge.badge-orange .noaa-pulse-dot {
+  background-color: #fb923c;
+  box-shadow: 0 0 6px #f97316;
+}
+
+.tempest-noaa-badge.badge-yellow .noaa-pulse-dot {
+  background-color: #facc15;
+  box-shadow: 0 0 6px #eab308;
+}
+
+.tempest-noaa-badge .noaa-badge-text {
+  white-space: nowrap;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .tempest-title {
@@ -339,6 +437,82 @@
 .modal-close-btn:hover,
 .modal-close-btn:active {
   background: #3f3f46 !important;
+}
+
+/* Modal Alert Box for NOAA Statements & Alerts */
+.modal-alert-box {
+  border-radius: 12px !important;
+  padding: 14px 18px !important;
+  margin-bottom: 20px !important;
+  text-align: left !important;
+  box-sizing: border-box !important;
+}
+
+.modal-alert-box.alert-color-red {
+  background: rgba(127, 29, 29, 0.45) !important;
+  border: 1.5px solid #ef4444 !important;
+  box-shadow: 0 0 20px rgba(239, 68, 68, 0.3) !important;
+  color: #fee2e2 !important;
+}
+
+.modal-alert-box.alert-color-orange {
+  background: rgba(124, 45, 18, 0.45) !important;
+  border: 1.5px solid #f97316 !important;
+  box-shadow: 0 0 20px rgba(249, 115, 22, 0.3) !important;
+  color: #ffedd5 !important;
+}
+
+.modal-alert-box.alert-color-yellow {
+  background: rgba(113, 63, 18, 0.45) !important;
+  border: 1.5px solid #eab308 !important;
+  box-shadow: 0 0 20px rgba(234, 179, 8, 0.3) !important;
+  color: #fef9c3 !important;
+}
+
+.modal-alert-head {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  margin-bottom: 6px !important;
+}
+
+.modal-alert-event {
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+}
+
+.modal-alert-badge {
+  font-size: 10px !important;
+  font-family: monospace !important;
+  padding: 1px 6px !important;
+  border-radius: 4px !important;
+  background: rgba(0, 0, 0, 0.5) !important;
+  border: 1px solid currentColor !important;
+}
+
+.modal-alert-headline {
+  font-size: 14px !important;
+  font-weight: 600 !important;
+  margin-bottom: 6px !important;
+  line-height: 1.4 !important;
+}
+
+.modal-alert-instruction {
+  font-size: 12px !important;
+  margin-top: 8px !important;
+  padding-top: 8px !important;
+  border-top: 1px solid rgba(255, 255, 255, 0.15) !important;
+  line-height: 1.4 !important;
+  opacity: 0.95 !important;
+}
+
+.modal-alert-desc {
+  font-size: 12px !important;
+  margin-top: 6px !important;
+  line-height: 1.4 !important;
+  opacity: 0.85 !important;
 }
 
 .modal-section-title {

@@ -4,6 +4,7 @@ import {
   DailyForecast,
   HourlyForecast,
   ModuleConfig,
+  NoaaWeatherAlert,
 } from '../types/tempest.ts';
 import {
   formatTemp,
@@ -32,6 +33,7 @@ interface WeatherModalProps {
   forecastDaily: DailyForecast[];
   forecastHourly: HourlyForecast[];
   config: ModuleConfig;
+  activeAlert?: NoaaWeatherAlert | null;
 }
 
 export const WeatherModal: React.FC<WeatherModalProps> = ({
@@ -41,6 +43,7 @@ export const WeatherModal: React.FC<WeatherModalProps> = ({
   forecastDaily,
   forecastHourly,
   config,
+  activeAlert,
 }) => {
   const [secondsRemaining, setSecondsRemaining] = useState(config.autoCloseModalSeconds || 30);
   const [activeHourlyIndex, setActiveHourlyIndex] = useState<number>(0);
@@ -206,6 +209,71 @@ export const WeatherModal: React.FC<WeatherModalProps> = ({
                 </div>
                 <div className="text-xs opacity-75 uppercase tracking-wider">Strike Distance</div>
               </div>
+            </div>
+          )}
+
+          {/* ACTIVE NOAA WEATHER STATEMENTS, WATCHES, ADVISORIES & WARNINGS */}
+          {activeAlert && (
+            <div
+              className={`p-4 rounded-xl border transition-all ${
+                activeAlert.color === 'red'
+                  ? 'bg-red-950/40 border-red-500 shadow-[0_0_20px_rgba(239,68,68,0.25)] text-red-100'
+                  : activeAlert.color === 'orange'
+                  ? 'bg-orange-950/40 border-orange-500 shadow-[0_0_20px_rgba(249,115,22,0.25)] text-orange-100'
+                  : 'bg-yellow-950/40 border-yellow-400 shadow-[0_0_20px_rgba(234,179,8,0.25)] text-yellow-100'
+              }`}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div className="flex items-center gap-2.5">
+                  <span
+                    className={`w-2.5 h-2.5 rounded-full shrink-0 animate-pulse ${
+                      activeAlert.color === 'red'
+                        ? 'bg-red-400'
+                        : activeAlert.color === 'orange'
+                        ? 'bg-orange-400'
+                        : 'bg-yellow-400'
+                    }`}
+                  />
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <span className="text-xs font-bold tracking-wider uppercase font-sans">
+                        NOAA {activeAlert.event}
+                      </span>
+                      {activeAlert.expires && (
+                        <span className="text-[10px] opacity-75 font-mono">
+                          {activeAlert.expires}
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs sm:text-sm font-semibold mt-1">
+                      {activeAlert.headline}
+                    </p>
+                  </div>
+                </div>
+                <span
+                  className={`text-[10px] font-mono px-2 py-0.5 rounded-full border uppercase tracking-wider shrink-0 ${
+                    activeAlert.color === 'red'
+                      ? 'border-red-500/60 bg-red-900/40 text-red-200'
+                      : activeAlert.color === 'orange'
+                      ? 'border-orange-500/60 bg-orange-900/40 text-orange-200'
+                      : 'border-yellow-400/60 bg-yellow-900/40 text-yellow-200'
+                  }`}
+                >
+                  {activeAlert.level}
+                </span>
+              </div>
+
+              {activeAlert.instruction && (
+                <p className="text-xs mt-2.5 pt-2.5 border-t border-white/10 opacity-90 leading-relaxed font-sans">
+                  <strong className="font-semibold">Instruction:</strong> {activeAlert.instruction}
+                </p>
+              )}
+
+              {activeAlert.description && (
+                <p className="text-xs mt-1.5 opacity-80 leading-relaxed line-clamp-3 hover:line-clamp-none font-sans">
+                  {activeAlert.description}
+                </p>
+              )}
             </div>
           )}
 
