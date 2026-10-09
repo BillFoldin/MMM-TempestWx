@@ -192,15 +192,22 @@ Module.register("MMM-TempestWx", {
       windTextEl.textContent = (obs.wind_direction_cardinal || "") + " " + windSpeed + " " + windUnit;
     }
 
-    const uvEl = card.querySelector(".uv-label");
-    if (uvEl) {
-      uvEl.textContent = "UV " + (obs.uv || 0).toFixed(1);
+    const uvValEl = card.querySelector(".metric-uv-val");
+    if (uvValEl) {
+      uvValEl.textContent = (obs.uv || 0).toFixed(1);
+    }
+
+    const uvCatEl = card.querySelector(".hero-uv-cat");
+    if (uvCatEl) {
+      const uvCat = this.getUvCategory(obs.uv);
+      uvCatEl.textContent = uvCat.label;
+      uvCatEl.className = "hero-uv-cat " + uvCat.class;
     }
 
     const rainEl = card.querySelector(".rain-label");
     if (rainEl) {
       if (obs.precip_accum_local_day > 0) {
-        rainEl.textContent = " · " + rainStr + " rain";
+        rainEl.textContent = " · 🌧️ " + rainStr + " rain";
         rainEl.style.display = "inline";
       } else {
         rainEl.style.display = "none";
@@ -326,6 +333,7 @@ Module.register("MMM-TempestWx", {
     const rainStr = isImperial
       ? (obs.precip_accum_local_day * 0.0393701).toFixed(2) + " in"
       : obs.precip_accum_local_day.toFixed(1) + " mm";
+    const uvCat = this.getUvCategory(obs.uv);
 
     // Build Module HTML with active alert outline
     const activeAlert = this.stationData.active_alert || null;
@@ -371,17 +379,28 @@ Module.register("MMM-TempestWx", {
         ` : ""}
       </div>
 
-      <!-- HERO CENTERPIECE: Front and Center Temperature with Condition Icon -->
+      <!-- HERO CENTERPIECE: Front and Center Temperature with Condition Icon and UV -->
       <div class="tempest-hero">
         <div class="hero-temp-row">
           <div class="hero-condition-icon">${iconSvg}</div>
           <div class="hero-temp-display">
             <span class="hero-temp-num hero-temp-val bright">${tempVal}</span><span class="hero-temp-deg dimmed">°</span>
           </div>
+          <div class="hero-uv-block">
+            <div class="hero-uv-val bright">
+              <svg class="tempest-icon uv-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8">
+                <circle cx="12" cy="12" r="4.5" />
+                <path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77"/>
+              </svg>
+              <span>UV <span class="metric-uv-val">${(obs.uv || 0).toFixed(1)}</span></span>
+            </div>
+            <span class="hero-uv-cat ${uvCat.class}">${uvCat.label}</span>
+          </div>
         </div>
         <div class="hero-condition-sub">
           <span class="hero-condition-text bright">${conditionsStr}</span>
           ${this.config.showFeelsLike ? `<span class="hero-divider dimmed">·</span><span class="hero-feels-val dimmed">Feels ${feelsLikeVal}°</span>` : ""}
+          <span class="rain-label"${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>${obs.precip_accum_local_day > 0 ? ` · 🌧️ ${rainStr} rain` : ""}</span>
         </div>
       </div>
 
@@ -429,18 +448,19 @@ Module.register("MMM-TempestWx", {
           <div class="metric-sub dimmed metric-wind-sub">${obs.wind_direction_cardinal || ""}${obs.wind_gust > obs.wind_avg + 1 ? ` (G ${gustSpeed})` : ""}</div>
         </div>
       </div>
-
-      <!-- AUXILIARY FOOTER -->
-      <div class="tempest-footer dimmed">
-        <div class="footer-aux">
-          <span class="uv-label bright">UV ${(obs.uv || 0).toFixed(1)}</span>
-          <span class="rain-label"${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>${obs.precip_accum_local_day > 0 ? ` · ${rainStr} rain` : ""}</span>
-        </div>
-      </div>
     `;
 
     wrapper.appendChild(moduleContainer);
     return wrapper;
+  },
+
+  getUvCategory: function (uv) {
+    const val = Number(uv) || 0;
+    if (val < 3) return { label: "Low", class: "uv-low" };
+    if (val < 6) return { label: "Moderate", class: "uv-moderate" };
+    if (val < 8) return { label: "High", class: "uv-high" };
+    if (val < 11) return { label: "Very High", class: "uv-very-high" };
+    return { label: "Extreme", class: "uv-extreme" };
   },
 
   isNightTime: function (obs) {

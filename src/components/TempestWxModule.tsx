@@ -85,12 +85,12 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
         }
       }}
       aria-label="TempestWx module. Click or tap for 7-day forecast and hourly wind trends."
-      className={`group relative select-none cursor-pointer rounded-2xl p-5 sm:p-6 transition-all duration-300 min-w-[320px] sm:min-w-[360px] ${
+      className={`group relative select-none cursor-pointer rounded-2xl p-4 sm:p-5 transition-all duration-300 min-w-[320px] sm:min-w-[360px] ${
         config.theme === 'ambient-glass' ? 'bg-neutral-900/60 backdrop-blur-md' : 'bg-black/95 hover:bg-neutral-950'
       } ${outlineClasses}`}
     >
       {/* Module Title / Kicker in native MagicMirror typography (Increased Font Size) */}
-      <div className="flex items-center justify-between gap-3 mb-3 border-b border-neutral-800/60 pb-2">
+      <div className="flex items-center justify-between gap-3 mb-2.5 border-b border-neutral-800/60 pb-2">
         <div className="flex items-center gap-2 flex-wrap min-w-0">
           <span className="text-xs sm:text-sm font-semibold tracking-widest text-neutral-300 uppercase font-sans shrink-0">
             TempestWx
@@ -146,7 +146,7 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
       {/* Lightning Warning Banner (Minimalist high-contrast alert) */}
       {lightningThreat.isNearby && (
         <div
-          className={`mb-3.5 px-3 py-2 rounded-lg border flex items-center justify-between text-xs sm:text-sm transition-all ${
+          className={`mb-2.5 px-3 py-1.5 rounded-lg border flex items-center justify-between text-xs sm:text-sm transition-all ${
             lightningThreat.level === 'danger'
               ? 'bg-rose-950/50 border-rose-500/70 text-rose-200 animate-pulse'
               : lightningThreat.level === 'caution'
@@ -170,12 +170,12 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
         </div>
       )}
 
-      {/* HERO SECTION: Front & Center Temperature with Condition Icon (Massively Increased Font Size) */}
-      <div className="my-3 sm:my-4 flex flex-col items-center justify-center text-center">
-        <div className="flex items-center justify-center gap-4 sm:gap-6">
+      {/* HERO SECTION: Front & Center Temperature with Condition Icon and UV to the right */}
+      <div className="my-2.5 sm:my-3 flex flex-col items-center justify-center text-center">
+        <div className="flex items-center justify-center gap-3 sm:gap-4">
           {/* Current Condition Vector Icon */}
           <div
-            className={`shrink-0 drop-shadow-md flex items-center justify-center pr-1 sm:pr-2 ${
+            className={`shrink-0 drop-shadow-md flex items-center justify-center ${
               isNight ? 'text-sky-200' : 'text-amber-400'
             }`}
           >
@@ -183,8 +183,8 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
               icon={currentIcon}
               condition={currentCondition}
               isNight={isNight}
-              size={58}
-              className="w-14 h-14 sm:w-16 sm:h-16 stroke-[1.75] overflow-visible"
+              size={54}
+              className="w-13 h-13 sm:w-14 sm:h-14 stroke-[1.75] overflow-visible"
             />
           </div>
 
@@ -193,14 +193,29 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
             <span className="text-6xl sm:text-7xl font-extralight font-sans tabular-nums leading-none">
               {formatTemp(observation.air_temperature, config.units, false)}
             </span>
-            <span className="text-3xl sm:text-4xl text-neutral-400 font-light ml-1 sm:ml-1.5">
+            <span className="text-3xl sm:text-4xl text-neutral-400 font-light ml-0.5 sm:ml-1">
               °{config.units === 'imperial' ? 'F' : 'C'}
+            </span>
+          </div>
+
+          {/* UV Information to the right of the temperature */}
+          <div className="flex flex-col items-start justify-center pl-3 sm:pl-3.5 border-l border-neutral-800/80 text-left shrink-0">
+            <div className="flex items-center gap-1.5">
+              <ModernSunUvIcon className={`w-4 h-4 shrink-0 ${uvCat.color}`} />
+              <span className="text-sm sm:text-base font-semibold font-mono text-white tracking-tight">
+                UV {observation.uv.toFixed(1)}
+              </span>
+            </div>
+            <span
+              className={`mt-1 text-[10px] sm:text-[11px] uppercase font-sans font-bold tracking-wider px-1.5 py-0.5 rounded border border-neutral-700/60 ${uvCat.color} bg-neutral-900/90`}
+            >
+              {uvCat.label}
             </span>
           </div>
         </div>
 
         {/* Condition Text & Thermal Subtitle */}
-        <div className="mt-2.5 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-sm sm:text-base font-sans">
+        <div className="mt-2 flex flex-wrap items-center justify-center gap-x-2.5 gap-y-1 text-sm sm:text-base font-sans">
           <span className="text-neutral-100 font-semibold tracking-wide">
             {currentCondition}
           </span>
@@ -212,11 +227,19 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
               </span>
             </>
           )}
+          {observation.precip_accum_local_day > 0 && (
+            <>
+              <span className="text-neutral-600 text-sm">·</span>
+              <span className="text-sky-400 font-medium font-mono text-xs sm:text-sm">
+                🌧️ {precipFormatted.value} {precipFormatted.unit} rain today
+              </span>
+            </>
+          )}
         </div>
       </div>
 
       {/* SECONDARY METRICS: Humidity, Barometric Pressure, Wind (Increased Font Sizes) */}
-      <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-3.5 border-t border-neutral-800/70 text-center">
+      <div className="grid grid-cols-3 gap-3 sm:gap-4 pt-3 border-t border-neutral-800/70 text-center">
         {/* Metric 1: Humidity */}
         <div className="flex flex-col items-center">
           <div className="flex items-center gap-1.5 text-neutral-400 mb-1">
@@ -291,34 +314,6 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
             )}
           </div>
         </div>
-      </div>
-
-      {/* AUXILIARY FOOTER: UV Index & Daily Rain Accumulation (Increased Font Sizes) */}
-      <div className="mt-3.5 pt-2.5 border-t border-neutral-800/60 flex flex-wrap items-center justify-between gap-y-1.5 text-xs sm:text-sm text-neutral-300 font-sans">
-        {/* UV Index Badge */}
-        <div className="flex items-center gap-2">
-          <ModernSunUvIcon className={`w-4 h-4 ${uvCat.color}`} />
-          <span className="text-neutral-200 font-medium font-mono">
-            UV {observation.uv.toFixed(1)}
-          </span>
-          <span
-            className={`text-[10px] sm:text-xs uppercase font-sans font-semibold px-1.5 py-0.5 rounded border border-neutral-700/60 ${uvCat.color} bg-neutral-900/80`}
-          >
-            {uvCat.label}
-          </span>
-        </div>
-
-        {/* Precipitation Info */}
-        {observation.precip_accum_local_day > 0 ? (
-          <div className="text-sky-400 font-mono text-xs sm:text-sm font-medium flex items-center gap-1.5">
-            <span>🌧️</span>
-            <span>{precipFormatted.value} {precipFormatted.unit} rain today</span>
-          </div>
-        ) : (
-          <div className="text-neutral-500 text-xs font-sans">
-            No rain today
-          </div>
-        )}
       </div>
     </div>
   );

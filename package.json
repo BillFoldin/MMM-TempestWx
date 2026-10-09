@@ -1,8 +1,8 @@
 {
-  "name": "MMM-TempestWx",
-  "private": true,
+  "name": "MMM-ChoreTracker",
   "version": "1.0.0",
-  "description": "MagicMirror² module and interactive companion simulator for Tempest Weather Station",
+  "description": "MagicMirror² Chore & Allowance Tracker with Atomic NoSQL persistence, dynamic recurrence, touchscreen PIN admin, and payout audit engine",
+  "main": "node_helper.js",
   "scripts": {
     "dev": "tsx server.ts",
     "sync:module": "bun scripts/sync-module-files.ts",
@@ -15,10 +15,12 @@
   "dependencies": {
     "@google/genai": "^2.4.0",
     "@tailwindcss/vite": "^4.3.3",
+    "@types/uuid": "9.0.8",
     "@vitejs/plugin-react": "^4.3.4",
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "jszip": "^3.10.2",
+    "lowdb": "1.0.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
@@ -26,7 +28,9 @@
     "tailwindcss": "^4.3.3",
     "tsx": "^4.23.15",
     "typescript": "^5.7.2",
-    "vite": "^6.2.0"
+    "uuid": "9.0.1",
+    "vite": "^6.2.0",
+    "write-file-atomic": "5.0.1"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

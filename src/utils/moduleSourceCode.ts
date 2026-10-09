@@ -195,15 +195,22 @@ Module.register("MMM-TempestWx", {
       windTextEl.textContent = (obs.wind_direction_cardinal || "") + " " + windSpeed + " " + windUnit;
     }
 
-    const uvEl = card.querySelector(".uv-label");
-    if (uvEl) {
-      uvEl.textContent = "UV " + (obs.uv || 0).toFixed(1);
+    const uvValEl = card.querySelector(".metric-uv-val");
+    if (uvValEl) {
+      uvValEl.textContent = (obs.uv || 0).toFixed(1);
+    }
+
+    const uvCatEl = card.querySelector(".hero-uv-cat");
+    if (uvCatEl) {
+      const uvCat = this.getUvCategory(obs.uv);
+      uvCatEl.textContent = uvCat.label;
+      uvCatEl.className = "hero-uv-cat " + uvCat.class;
     }
 
     const rainEl = card.querySelector(".rain-label");
     if (rainEl) {
       if (obs.precip_accum_local_day > 0) {
-        rainEl.textContent = " · " + rainStr + " rain";
+        rainEl.textContent = " · 🌧️ " + rainStr + " rain";
         rainEl.style.display = "inline";
       } else {
         rainEl.style.display = "none";
@@ -329,6 +336,7 @@ Module.register("MMM-TempestWx", {
     const rainStr = isImperial
       ? (obs.precip_accum_local_day * 0.0393701).toFixed(2) + " in"
       : obs.precip_accum_local_day.toFixed(1) + " mm";
+    const uvCat = this.getUvCategory(obs.uv);
 
     // Build Module HTML with active alert outline
     const activeAlert = this.stationData.active_alert || null;
@@ -374,17 +382,28 @@ Module.register("MMM-TempestWx", {
         \` : ""}
       </div>
 
-      <!-- HERO CENTERPIECE: Front and Center Temperature with Condition Icon -->
+      <!-- HERO CENTERPIECE: Front and Center Temperature with Condition Icon and UV -->
       <div class="tempest-hero">
         <div class="hero-temp-row">
           <div class="hero-condition-icon">\${iconSvg}</div>
           <div class="hero-temp-display">
             <span class="hero-temp-num hero-temp-val bright">\${tempVal}</span><span class="hero-temp-deg dimmed">°</span>
           </div>
+          <div class="hero-uv-block">
+            <div class="hero-uv-val bright">
+              <svg class="tempest-icon uv-icon" viewBox="0 0 24 24" fill="none" stroke="#f59e0b" stroke-width="1.8">
+                <circle cx="12" cy="12" r="4.5" />
+                <path d="M12 2v2.5M12 19.5V22M4.93 4.93l1.77 1.77M17.3 17.3l1.77 1.77M2 12h2.5M19.5 12H22M4.93 19.07l1.77-1.77M17.3 6.7l1.77-1.77"/>
+              </svg>
+              <span>UV <span class="metric-uv-val">\${(obs.uv || 0).toFixed(1)}</span></span>
+            </div>
+            <span class="hero-uv-cat \${uvCat.class}">\${uvCat.label}</span>
+          </div>
         </div>
         <div class="hero-condition-sub">
           <span class="hero-condition-text bright">\${conditionsStr}</span>
           \${this.config.showFeelsLike ? \`<span class="hero-divider dimmed">·</span><span class="hero-feels-val dimmed">Feels \${feelsLikeVal}°</span>\` : ""}
+          <span class="rain-label"\${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>\${obs.precip_accum_local_day > 0 ? \` · 🌧️ \${rainStr} rain\` : ""}</span>
         </div>
       </div>
 
@@ -432,18 +451,19 @@ Module.register("MMM-TempestWx", {
           <div class="metric-sub dimmed metric-wind-sub">\${obs.wind_direction_cardinal || ""}\${obs.wind_gust > obs.wind_avg + 1 ? \` (G \${gustSpeed})\` : ""}</div>
         </div>
       </div>
-
-      <!-- AUXILIARY FOOTER -->
-      <div class="tempest-footer dimmed">
-        <div class="footer-aux">
-          <span class="uv-label bright">UV \${(obs.uv || 0).toFixed(1)}</span>
-          <span class="rain-label"\${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>\${obs.precip_accum_local_day > 0 ? \` · \${rainStr} rain\` : ""}</span>
-        </div>
-      </div>
     \`;
 
     wrapper.appendChild(moduleContainer);
     return wrapper;
+  },
+
+  getUvCategory: function (uv) {
+    const val = Number(uv) || 0;
+    if (val < 3) return { label: "Low", class: "uv-low" };
+    if (val < 6) return { label: "Moderate", class: "uv-moderate" };
+    if (val < 8) return { label: "High", class: "uv-high" };
+    if (val < 11) return { label: "Very High", class: "uv-very-high" };
+    return { label: "Extreme", class: "uv-extreme" };
   },
 
   isNightTime: function (obs) {
@@ -1913,7 +1933,7 @@ export function getMmmTempestWxCss(): string {
   display: inline-block;
   min-width: 320px;
   background: rgba(0, 0, 0, 0.9);
-  padding: 16px 20px;
+  padding: 14px 18px;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.15);
   box-shadow: 0 8px 32px rgba(0, 0, 0, 0.5);
@@ -2087,31 +2107,31 @@ export function getMmmTempestWxCss(): string {
   align-items: center;
   justify-content: center;
   text-align: center;
-  margin: 12px 0 16px 0;
+  margin: 8px 0 12px 0;
 }
 
 .hero-temp-row {
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 20px;
+  gap: 16px;
 }
 
 .hero-condition-icon {
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 64px;
-  height: 64px;
+  width: 58px;
+  height: 58px;
   flex-shrink: 0;
   overflow: visible;
-  padding-right: 4px;
+  padding-right: 2px;
   box-sizing: content-box;
 }
 
 .hero-condition-icon svg {
-  width: 58px;
-  height: 58px;
+  width: 54px;
+  height: 54px;
   display: block;
   overflow: visible;
 }
@@ -2138,12 +2158,78 @@ export function getMmmTempestWxCss(): string {
   color: #94a3b8;
 }
 
+/* UV Information block to the right of the temperature */
+.hero-uv-block {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+  border-left: 1px solid rgba(255, 255, 255, 0.15);
+  padding-left: 14px;
+  text-align: left;
+  flex-shrink: 0;
+}
+
+.hero-uv-val {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-family: monospace;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.hero-uv-val .uv-icon {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+.hero-uv-cat {
+  margin-top: 3px;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 4px;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+  background: rgba(0, 0, 0, 0.5);
+  line-height: 1.3;
+}
+
+.hero-uv-cat.uv-low {
+  color: #4ade80;
+  border-color: rgba(74, 222, 128, 0.4);
+}
+
+.hero-uv-cat.uv-moderate {
+  color: #facc15;
+  border-color: rgba(250, 204, 21, 0.4);
+}
+
+.hero-uv-cat.uv-high {
+  color: #fb923c;
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
+.hero-uv-cat.uv-very-high {
+  color: #f87171;
+  border-color: rgba(248, 113, 113, 0.4);
+}
+
+.hero-uv-cat.uv-extreme {
+  color: #c084fc;
+  border-color: rgba(192, 132, 252, 0.4);
+}
+
 .hero-condition-sub {
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 8px;
-  margin-top: 8px;
+  margin-top: 6px;
   font-size: 14px;
 }
 
@@ -2169,8 +2255,8 @@ export function getMmmTempestWxCss(): string {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14px;
-  margin-bottom: 12px;
-  padding-top: 14px;
+  margin-bottom: 0;
+  padding-top: 12px;
   border-top: 1px solid rgba(255, 255, 255, 0.12);
   text-align: center;
 }

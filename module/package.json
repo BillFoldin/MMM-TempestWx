@@ -1,0 +1,24 @@
+{
+  "name": "MMM-ChoreTracker",
+  "version": "1.0.0",
+  "description": "MagicMirror² Chore & Allowance Tracker with Atomic NoSQL persistence, dynamic recurrence, touchscreen PIN admin, and payout audit engine",
+  "main": "node_helper.js",
+  "keywords": [
+    "magicmirror",
+    "magicmirror2",
+    "smart-mirror",
+    "chores",
+    "allowance",
+    "family",
+    "kids",
+    "touchscreen",
+    "raspberry-pi"
+  ],
+  "author": "Senior Full-Stack JavaScript Engineer",
+  "license": "MIT",
+  "dependencies": {
+    "lowdb": "1.0.0",
+    "uuid": "9.0.1",
+    "write-file-atomic": "5.0.1"
+  }
+}
