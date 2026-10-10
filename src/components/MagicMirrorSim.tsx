@@ -91,15 +91,6 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
 
           {/* Real-time Observation Quick Chips */}
           <div className="hidden md:flex items-center gap-2">
-            {/* UV Status Chip */}
-            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-neutral-800 border border-neutral-700/60 text-[11px] font-mono">
-              <ModernSunUvIcon className={`w-3 h-3 ${uvCat.color}`} />
-              <span className="text-neutral-300">UV {stationData.observation.uv.toFixed(1)}</span>
-              <span className={`text-[10px] uppercase font-sans ${uvCat.color}`}>
-                ({uvCat.label})
-              </span>
-            </span>
-
             {/* Lightning Status Chip */}
             <span
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[11px] font-mono ${
@@ -269,20 +260,6 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
               <div className="text-xs sm:text-sm font-light text-neutral-400 mt-1 uppercase tracking-wider font-sans">
                 {dateString}
               </div>
-
-              {/* Minimalist Mirror UV Index Status */}
-              <div className="mt-3 pt-2.5 border-t border-neutral-900 flex items-center gap-2 text-xs font-sans">
-                <ModernSunUvIcon className={`w-3.5 h-3.5 ${uvCat.color}`} />
-                <span className="text-neutral-400 font-light">UV Index:</span>
-                <span className="text-white font-mono font-medium">
-                  {stationData.observation.uv.toFixed(1)}
-                </span>
-                <span
-                  className={`text-[9px] uppercase font-sans font-medium px-1.5 py-0.5 rounded border border-neutral-800/80 ${uvCat.color} bg-neutral-900/60`}
-                >
-                  {uvCat.label}
-                </span>
-              </div>
             </div>
           ) : (
             <div />
@@ -334,9 +311,9 @@ export const MagicMirrorSim: React.FC<MagicMirrorSimProps> = ({
             <div className="w-full text-center py-2">
               <p className="text-xs sm:text-sm font-light text-neutral-400 tracking-widest font-sans uppercase">
                 {lightningThreat.isNearby
-                  ? `⚡ Lightning warning · Strikes detected ${lightningDistFormatted.value} ${lightningDistFormatted.unit} away · Seek shelter indoors`
+                  ? `Lightning warning · Strikes detected ${lightningDistFormatted.value} ${lightningDistFormatted.unit} away · Seek shelter indoors`
                   : stationData.observation.uv >= 6
-                  ? `☀️ High UV Index (${stationData.observation.uv.toFixed(1)}) · ${uvCat.advice}`
+                  ? `High UV Index (${stationData.observation.uv.toFixed(1)}) · ${uvCat.advice}`
                   : stationData.observation.precip_accum_local_day > 0
                   ? 'Rain in the forecast today · Bring an umbrella'
                   : stationData.observation.air_temperature > 24

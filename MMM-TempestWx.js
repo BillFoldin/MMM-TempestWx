@@ -205,10 +205,13 @@ Module.register("MMM-TempestWx", {
     }
 
     const rainEl = card.querySelector(".rain-label");
+    const rainTextEl = card.querySelector(".rain-text");
     if (rainEl) {
       if (obs.precip_accum_local_day > 0) {
-        rainEl.textContent = " · 🌧️ " + rainStr + " rain";
-        rainEl.style.display = "inline";
+        if (rainTextEl) {
+          rainTextEl.textContent = rainStr + " rain today";
+        }
+        rainEl.style.display = "inline-flex";
       } else {
         rainEl.style.display = "none";
       }
@@ -373,7 +376,9 @@ Module.register("MMM-TempestWx", {
       <div class="lightning-container"${hasLightning ? '' : ' style="display:none;"'}>
         ${hasLightning ? `
           <div class="tempest-lightning-alert ${isSevereLightning ? 'danger' : 'caution'}">
-            <span class="lightning-bolt">⚡</span>
+            <svg class="tempest-icon lightning-bolt-svg" viewBox="0 0 24 24" fill="#fbbf24" stroke="#f59e0b" stroke-width="1.5">
+              <polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2" />
+            </svg>
             <span class="alert-title">${isSevereLightning ? 'WARNING: LIGHTNING' : 'LIGHTNING DETECTED'}: ${lightningDist} (${obs.lightning_strike_count} strikes)</span>
           </div>
         ` : ""}
@@ -400,7 +405,16 @@ Module.register("MMM-TempestWx", {
         <div class="hero-condition-sub">
           <span class="hero-condition-text bright">${conditionsStr}</span>
           ${this.config.showFeelsLike ? `<span class="hero-divider dimmed">·</span><span class="hero-feels-val dimmed">Feels ${feelsLikeVal}°</span>` : ""}
-          <span class="rain-label"${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>${obs.precip_accum_local_day > 0 ? ` · 🌧️ ${rainStr} rain` : ""}</span>
+          <span class="rain-label"${obs.precip_accum_local_day > 0 ? '' : ' style="display:none;"'}>
+            <span class="hero-divider dimmed">·</span>
+            <svg class="tempest-icon rain-icon-svg" viewBox="0 0 24 24" fill="none" stroke="#38bdf8" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M17.5 14H9a5 5 0 0 1-1-9.9 6 6 0 0 1 11.5 2.9A4 4 0 0 1 17.5 14z" />
+              <line x1="8" y1="17" x2="7" y2="21" stroke-width="2" />
+              <line x1="12" y1="17" x2="11" y2="21" stroke-width="2" />
+              <line x1="16" y1="17" x2="15" y2="21" stroke-width="2" />
+            </svg>
+            <span class="rain-text">${rainStr} rain today</span>
+          </span>
         </div>
       </div>
 

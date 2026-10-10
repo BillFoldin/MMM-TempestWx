@@ -17,6 +17,7 @@ import {
   ModernWindVectorIcon,
   ModernSunUvIcon,
   ModernLightningBoltIcon,
+  ModernRainCloudIcon,
   WeatherConditionIcon,
 } from './WeatherIcons.tsx';
 
@@ -230,8 +231,9 @@ export const TempestWxModule: React.FC<TempestWxModuleProps> = ({
           {observation.precip_accum_local_day > 0 && (
             <>
               <span className="text-neutral-600 text-sm">·</span>
-              <span className="text-sky-400 font-medium font-mono text-xs sm:text-sm">
-                🌧️ {precipFormatted.value} {precipFormatted.unit} rain today
+              <span className="inline-flex items-center gap-1.5 text-sky-400 font-medium font-mono text-xs sm:text-sm">
+                <ModernRainCloudIcon className="w-3.5 h-3.5 shrink-0 text-sky-400" />
+                <span>{precipFormatted.value} {precipFormatted.unit} rain today</span>
               </span>
             </>
           )}

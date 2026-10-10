@@ -330,6 +330,32 @@
   font-weight: 500;
 }
 
+.rain-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: #38bdf8;
+  font-weight: 500;
+  vertical-align: middle;
+}
+
+.rain-icon-svg {
+  width: 15px;
+  height: 15px;
+  stroke: #38bdf8;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
+.lightning-bolt-svg {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  display: inline-block;
+  vertical-align: middle;
+}
+
 /* SECONDARY TELEMETRY GRID: Humidity, Pressure, Wind */
 .tempest-metrics-grid {
   display: grid;
