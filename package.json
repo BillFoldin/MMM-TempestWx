@@ -1,7 +1,7 @@
 {
-  "name": "MMM-ChoreTracker",
+  "name": "MMM-TempestWx",
   "version": "1.0.0",
-  "description": "MagicMirror² Chore & Allowance Tracker with Atomic NoSQL persistence, dynamic recurrence, touchscreen PIN admin, and payout audit engine",
+  "description": "Minimalist weather station module for Tempest by WeatherFlow on MagicMirror²",
   "main": "node_helper.js",
   "scripts": {
     "dev": "tsx server.ts",
@@ -20,7 +20,6 @@
     "dotenv": "^17.2.3",
     "express": "^4.21.2",
     "jszip": "^3.10.2",
-    "lowdb": "1.0.0",
     "lucide-react": "^0.546.0",
     "motion": "^12.23.24",
     "react": "^19.0.1",
@@ -29,8 +28,7 @@
     "tsx": "^4.23.15",
     "typescript": "^5.7.2",
     "uuid": "9.0.1",
-    "vite": "^6.2.0",
-    "write-file-atomic": "5.0.1"
+    "vite": "^6.2.0"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",

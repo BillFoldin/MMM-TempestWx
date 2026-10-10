@@ -1,649 +1,554 @@
 /* MagicMirror²
- * Node Helper: MMM-ChoreTracker
+ * Node Helper: MMM-TempestWx
  *
- * Backend engine managing local embedded JSON databases with atomic writes (write-file-atomic),
- * dynamic midnight recurrence engine, task completion, threaded notes, PIN security,
- * and immutable payout ledger processing.
- *
+ * Fetches observations and forecast from WeatherFlow Tempest API.
+ * Uses native built-in Node.js https / fetch standard functionality with ZERO npm dependencies!
  * MIT Licensed.
  */
 
-const fs = require("fs");
-const path = require("path");
-const writeFileAtomic = require("write-file-atomic");
-const low = require("lowdb");
-const { v4: uuidv4 } = require("uuid");
-
-// MagicMirror² NodeHelper fallback if run standalone or in test harness
-let NodeHelper;
-try {
-  NodeHelper = require("node_helper");
-} catch (e) {
-  NodeHelper = {
-    create: function (definition) {
-      return Object.assign({
-        name: "MMM-ChoreTracker",
-        sendSocketNotification: function (notification, payload) {
-          console.log(`[node_helper:standalone] -> ${notification}:`, payload);
-        }
-      }, definition);
-    }
-  };
-}
-
-/**
- * Custom AtomicFileAdapter for lowdb (v1 CommonJS)
- * Uses write-file-atomic to guarantee zero JSON corruption during sudden Raspberry Pi power loss.
- */
-class AtomicFileAdapter {
-  constructor(source, defaultValue = {}) {
-    this.source = source;
-    this.defaultValue = defaultValue;
-    this.serialize = (data) => JSON.stringify(data, null, 2);
-    this.deserialize = JSON.parse;
-  }
-
-  read() {
-    if (fs.existsSync(this.source)) {
-      try {
-        const raw = fs.readFileSync(this.source, "utf8");
-        if (!raw || raw.trim() === "") {
-          return this.defaultValue;
-        }
-        return this.deserialize(raw);
-      } catch (err) {
-        console.error(`[MMM-ChoreTracker] Warning: Malformed JSON or read error in ${this.source}. Falling back to default:`, err.message);
-        return this.defaultValue;
-      }
-    } else {
-      // Auto-create directory and initialize file atomically with default values
-      try {
-        const dir = path.dirname(this.source);
-        if (!fs.existsSync(dir)) {
-          fs.mkdirSync(dir, { recursive: true });
-        }
-        writeFileAtomic.sync(this.source, this.serialize(this.defaultValue), { encoding: "utf8" });
-      } catch (err) {
-        console.error(`[MMM-ChoreTracker] Failed to initialize ${this.source} with default:`, err.message);
-      }
-      return this.defaultValue;
-    }
-  }
-
-  write(data) {
-    try {
-      const dir = path.dirname(this.source);
-      if (!fs.existsSync(dir)) {
-        fs.mkdirSync(dir, { recursive: true });
-      }
-      writeFileAtomic.sync(this.source, this.serialize(data), { encoding: "utf8" });
-    } catch (err) {
-      console.error(`[MMM-ChoreTracker] Atomic write failed for ${this.source}:`, err.message);
-      throw err;
-    }
-  }
-}
+const NodeHelper = require("node_helper");
+const https = require("https");
 
 module.exports = NodeHelper.create({
-  // Initial setup on module load
   start: function () {
-    console.log(`[${this.name}] Initializing backend helper with Atomic NoSQL engine...`);
-    this.config = {
-      parentPin: "1234",
-      dataDir: path.join(__dirname, "data")
-    };
-
-    // Ensure database directory exists
-    if (!fs.existsSync(this.config.dataDir)) {
-      fs.mkdirSync(this.config.dataDir, { recursive: true });
-    }
-
-    this.choresDbPath = path.join(this.config.dataDir, "chores_db.json");
-    this.payoutsDbPath = path.join(this.config.dataDir, "payouts_db.json");
-
-    // Initialize lowdb instances with atomic adapters
-    this.initDatabases();
-
-    // Run dynamic recurrence engine on startup
-    this.evaluateRecurrence();
-
-    // Start daily midnight recurrence interval checker
-    this.startMidnightRecurrenceEngine();
+    console.log("[MMM-TempestWx] Node helper started successfully.");
+    this.config = null;
+    this.pollTimer = null;
   },
 
-  /**
-   * Initialize both lowdb databases with atomic adapters and standard default schemas
-   */
-  initDatabases: function () {
-    const defaultChoresData = {
-      profiles: [
-        {
-          id: "child_01",
-          name: "Alex",
-          pin: null,
-          icon: "assets/icons/alex.png"
-        },
-        {
-          id: "child_02",
-          name: "Emma",
-          pin: null,
-          icon: "assets/icons/emma.png"
-        }
-      ],
-      tasks: [
-        {
-          id: "task_101",
-          title: "Brush Teeth",
-          category: "routine",
-          reward_amount: 0.00,
-          assigned_to: "child_01",
-          recurrence: {
-            frequency: "weekly",
-            days_of_week: [0, 1, 2, 3, 4, 5, 6]
-          },
-          last_completed_date: "2026-09-24",
-          is_completed_today: false,
-          notes: []
-        },
-        {
-          id: "task_102",
-          title: "Make Bed",
-          category: "routine",
-          reward_amount: 0.00,
-          assigned_to: "child_01",
-          recurrence: {
-            frequency: "weekly",
-            days_of_week: [1, 2, 3, 4, 5]
-          },
-          last_completed_date: "2026-09-25",
-          is_completed_today: true,
-          notes: []
-        },
-        {
-          id: "task_201",
-          title: "Rake Leaves",
-          category: "monetized",
-          reward_amount: 5.00,
-          assigned_to: "up_for_grabs",
-          recurrence: null,
-          is_completed: false,
-          is_approved: false,
-          notes: [
-            {
-              author: "Parent",
-              text: "Please make sure to bag the leaves near the garage.",
-              timestamp: "2026-09-25T14:00:00Z"
-            }
-          ]
-        },
-        {
-          id: "task_202",
-          title: "Wash Family Car",
-          category: "monetized",
-          reward_amount: 7.50,
-          assigned_to: "child_01",
-          recurrence: null,
-          is_completed: true,
-          completed_date: "2026-09-25",
-          is_approved: true,
-          notes: [
-            {
-              author: "Alex",
-              text: "Completed the wheels and vacuumed inside too!",
-              timestamp: "2026-09-25T16:30:00Z"
-            }
-          ]
-        }
-      ]
-    };
-
-    const defaultPayoutsData = {
-      payout_records: [
-        {
-          id: "payout_1001",
-          profile_id: "child_01",
-          total_amount: 12.50,
-          date_range_start: "2026-09-18",
-          date_range_end: "2026-09-25",
-          processed_timestamp: "2026-09-25T18:00:00Z",
-          approved_task_ids: ["task_201"]
-        }
-      ]
-    };
-
-    const choresAdapter = new AtomicFileAdapter(this.choresDbPath, defaultChoresData);
-    this.choresDb = low(choresAdapter);
-
-    const payoutsAdapter = new AtomicFileAdapter(this.payoutsDbPath, defaultPayoutsData);
-    this.payoutsDb = low(payoutsAdapter);
-
-    console.log(`[${this.name}] Connected to NoSQL databases: ${this.choresDbPath} and ${this.payoutsDbPath}`);
-  },
-
-  /**
-   * Helper: Get current local date formatted as YYYY-MM-DD
-   */
-  getLocalDateString: function (d = new Date()) {
-    const year = d.getFullYear();
-    const month = String(d.getMonth() + 1).padStart(2, "0");
-    const day = String(d.getDate()).padStart(2, "0");
-    return `${year}-${month}-${day}`;
-  },
-
-  /**
-   * Core Engine 1: Dynamic Recurrence Engine
-   * Evaluates all routine category tasks against the current local date.
-   * If last_completed_date is prior to today's date and today matches recurrence.days_of_week,
-   * resets is_completed_today to false automatically.
-   */
-  evaluateRecurrence: function () {
-    try {
-      const today = new Date();
-      const todayStr = this.getLocalDateString(today);
-      const currentDayOfWeek = today.getDay(); // 0 = Sun, 1 = Mon, ..., 6 = Sat
-
-      const tasks = this.choresDb.get("tasks").value() || [];
-      let stateChanged = false;
-
-      tasks.forEach((task) => {
-        if (task.category === "routine" && task.recurrence) {
-          const daysOfWeek = task.recurrence.days_of_week || [0, 1, 2, 3, 4, 5, 6];
-          const isScheduledToday = daysOfWeek.includes(currentDayOfWeek);
-
-          // If task was completed on a previous day and today matches scheduled recurrence
-          if (task.last_completed_date && task.last_completed_date < todayStr) {
-            if (isScheduledToday && task.is_completed_today) {
-              task.is_completed_today = false;
-              stateChanged = true;
-              console.log(`[${this.name}:RecurrenceEngine] Reset routine task "${task.title}" (${task.id}) for today (${todayStr}).`);
-            }
-          } else if (task.last_completed_date === todayStr) {
-            if (!task.is_completed_today) {
-              task.is_completed_today = true;
-              stateChanged = true;
-            }
-          } else if (!task.last_completed_date) {
-            // Task never completed
-            if (task.is_completed_today) {
-              task.is_completed_today = false;
-              stateChanged = true;
-            }
-          }
-        }
-      });
-
-      if (stateChanged) {
-        this.choresDb.set("tasks", tasks).write();
-        console.log(`[${this.name}:RecurrenceEngine] Atomic write completed after daily recurrence evaluation.`);
-      }
-    } catch (err) {
-      console.error(`[${this.name}:RecurrenceEngine] Recurrence evaluation failed:`, err);
-    }
-  },
-
-  /**
-   * Midnight recurrence check scheduler (runs every 60 seconds to detect midnight rollover)
-   */
-  startMidnightRecurrenceEngine: function () {
-    let lastCheckedDate = this.getLocalDateString();
-
-    setInterval(() => {
-      const currentDate = this.getLocalDateString();
-      if (currentDate !== lastCheckedDate) {
-        console.log(`[${this.name}] Midnight rollover detected (${lastCheckedDate} -> ${currentDate}). Running recurrence engine...`);
-        lastCheckedDate = currentDate;
-        this.evaluateRecurrence();
-        this.broadcastAllChoresData();
-      }
-    }, 60 * 1000);
-  },
-
-  /**
-   * Read full state from lowdb databases and broadcast to frontend
-   */
-  broadcastAllChoresData: function () {
-    try {
-      const profiles = this.choresDb.get("profiles").value() || [];
-      const tasks = this.choresDb.get("tasks").value() || [];
-      const payout_records = this.payoutsDb.get("payout_records").value() || [];
-
-      this.sendSocketNotification("CHORES_DATA_UPDATE", {
-        profiles: profiles,
-        tasks: tasks,
-        payout_records: payout_records
-      });
-    } catch (err) {
-      console.error(`[${this.name}] Error broadcasting chores data:`, err);
-    }
-  },
-
-  /**
-   * Socket notification dispatcher
-   */
   socketNotificationReceived: function (notification, payload) {
-    // 1. Initial Data Request
-    if (notification === "GET_CHORES_DATA") {
-      this.evaluateRecurrence();
-      this.broadcastAllChoresData();
-    }
+    if (notification === "CONFIG") {
+      console.log("[MMM-TempestWx] Received CONFIG from frontend. Station ID:", payload ? payload.stationId : "undefined");
+      this.config = payload;
+      this.fetchTempestData();
 
-    // 2. Toggle Task Completion
-    else if (notification === "TOGGLE_TASK_COMPLETION") {
-      this.handleToggleTaskCompletion(payload);
-    }
-
-    // 3. Claim Up For Grabs Chore
-    else if (notification === "CLAIM_TASK") {
-      this.handleClaimTask(payload);
-    }
-
-    // 4. Add Threaded Note to Task
-    else if (notification === "ADD_TASK_NOTE") {
-      this.handleAddTaskNote(payload);
-    }
-
-    // 5. Parent 4-Digit PIN Verification
-    else if (notification === "PARENT_VERIFY_PIN") {
-      this.handleVerifyPin(payload);
-    }
-
-    // 6. Parent Approve / Revoke Monetized Task
-    else if (notification === "APPROVE_TASK") {
-      this.handleApproveTask(payload);
-    }
-
-    // 7. Create New Task from Mirror Touchscreen
-    else if (notification === "CREATE_TASK") {
-      this.handleCreateTask(payload);
-    }
-
-    // 8. Delete Task
-    else if (notification === "DELETE_TASK") {
-      this.handleDeleteTask(payload);
-    }
-
-    // 9. Process Payout & Append Immutable Audit Record
-    else if (notification === "PROCESS_PAYOUT") {
-      this.handleProcessPayout(payload);
+      // Clear any prior interval and start periodic polling
+      if (this.pollTimer) clearInterval(this.pollTimer);
+      const interval = Math.max(15000, this.config.updateInterval || 60000);
+      this.pollTimer = setInterval(() => {
+        this.fetchTempestData();
+      }, interval);
     }
   },
 
   /**
-   * Action Handler: Toggle Task Completion
+   * Helper utilizing modern built-in fetch or Node.js https.get with native Promise
    */
-  handleToggleTaskCompletion: function (payload) {
-    try {
-      const { taskId, profileId, isCompleted } = payload;
-      const todayStr = this.getLocalDateString();
-      const tasks = this.choresDb.get("tasks").value() || [];
-      const task = tasks.find((t) => t.id === taskId);
-
-      if (!task) return;
-
-      if (task.category === "routine") {
-        task.is_completed_today = Boolean(isCompleted);
-        if (isCompleted) {
-          task.last_completed_date = todayStr;
+  httpGetJson: async function (url) {
+    if (typeof fetch === "function") {
+      const response = await fetch(url, {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "MagicMirror-MMM-TempestWx/1.0"
         }
-      } else {
-        // Monetized chore
-        task.is_completed = Boolean(isCompleted);
-        task.completed_date = isCompleted ? todayStr : null;
+      });
+      if (!response.ok) {
+        throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+      }
+      return await response.json();
+    }
 
-        if (isCompleted) {
-          // If chore was up_for_grabs and completed by a specific profile, assign it
-          if (task.assigned_to === "up_for_grabs" && profileId && profileId !== "up_for_grabs" && profileId !== "all") {
-            task.assigned_to = profileId;
+    return new Promise((resolve, reject) => {
+      const options = {
+        headers: {
+          "Accept": "application/json",
+          "User-Agent": "MagicMirror-MMM-TempestWx/1.0"
+        }
+      };
+
+      https.get(url, options, (res) => {
+        if (res.statusCode < 200 || res.statusCode >= 300) {
+          return reject(new Error(`HTTP ${res.statusCode}: ${res.statusMessage}`));
+        }
+
+        let body = "";
+        res.on("data", (chunk) => {
+          body += chunk;
+        });
+
+        res.on("end", () => {
+          try {
+            const data = JSON.parse(body);
+            resolve(data);
+          } catch (e) {
+            reject(new Error("Failed to parse JSON response from Tempest API"));
           }
-        } else {
-          // Reset approval when uncompleted
-          task.is_approved = false;
-        }
-      }
-
-      this.choresDb.set("tasks", tasks).write();
-      this.broadcastAllChoresData();
-    } catch (err) {
-      console.error(`[${this.name}] handleToggleTaskCompletion failed:`, err);
-    }
-  },
-
-  /**
-   * Action Handler: Claim Up For Grabs Chore
-   */
-  handleClaimTask: function (payload) {
-    try {
-      const { taskId, profileId } = payload;
-      if (!profileId) return;
-
-      const tasks = this.choresDb.get("tasks").value() || [];
-      const task = tasks.find((t) => t.id === taskId);
-
-      if (task && task.assigned_to === "up_for_grabs") {
-        task.assigned_to = profileId;
-        if (!task.notes) task.notes = [];
-        const profile = (this.choresDb.get("profiles").value() || []).find((p) => p.id === profileId);
-        const name = profile ? profile.name : profileId;
-        task.notes.push({
-          author: "System",
-          text: `Chore claimed by ${name}.`,
-          timestamp: new Date().toISOString()
         });
-
-        this.choresDb.set("tasks", tasks).write();
-        this.broadcastAllChoresData();
-      }
-    } catch (err) {
-      console.error(`[${this.name}] handleClaimTask failed:`, err);
-    }
-  },
-
-  /**
-   * Action Handler: Add Threaded Note to Task
-   */
-  handleAddTaskNote: function (payload) {
-    try {
-      const { taskId, author, text } = payload;
-      if (!text || !text.trim()) return;
-
-      const tasks = this.choresDb.get("tasks").value() || [];
-      const task = tasks.find((t) => t.id === taskId);
-
-      if (task) {
-        if (!task.notes) task.notes = [];
-        task.notes.push({
-          author: author || "Family",
-          text: text.trim(),
-          timestamp: new Date().toISOString()
-        });
-
-        this.choresDb.set("tasks", tasks).write();
-        this.broadcastAllChoresData();
-      }
-    } catch (err) {
-      console.error(`[${this.name}] handleAddTaskNote failed:`, err);
-    }
-  },
-
-  /**
-   * Action Handler: Parent PIN verification
-   */
-  handleVerifyPin: function (payload) {
-    const enteredPin = String(payload.pin || "").trim();
-    const correctPin = String(this.config.parentPin || "1234").trim();
-
-    const isMatch = enteredPin === correctPin;
-    this.sendSocketNotification("PARENT_PIN_RESULT", {
-      success: isMatch,
-      message: isMatch ? "Authenticated" : "Incorrect PIN"
+      }).on("error", (err) => {
+        reject(err);
+      });
     });
   },
 
   /**
-   * Action Handler: Approve Monetized Task
+   * Fetch live observations and Better Forecast from WeatherFlow REST API
    */
-  handleApproveTask: function (payload) {
-    try {
-      const { taskId, isApproved } = payload;
-      const tasks = this.choresDb.get("tasks").value() || [];
-      const task = tasks.find((t) => t.id === taskId);
-
-      if (task) {
-        task.is_approved = Boolean(isApproved);
-        if (!task.notes) task.notes = [];
-        task.notes.push({
-          author: "Parent",
-          text: isApproved ? "Chore verified and approved for payout." : "Approval status revoked.",
-          timestamp: new Date().toISOString()
-        });
-
-        this.choresDb.set("tasks", tasks).write();
-        this.broadcastAllChoresData();
-      }
-    } catch (err) {
-      console.error(`[${this.name}] handleApproveTask failed:`, err);
+  fetchTempestData: async function () {
+    if (!this.config || !this.config.stationId || !this.config.token) {
+      this.sendSocketNotification("TEMPEST_ERROR", "TempestWx: Missing stationId or token in config.js");
+      return;
     }
-  },
 
-  /**
-   * Action Handler: In-Module Chore Creation
-   */
-  handleCreateTask: function (payload) {
+    const stationId = String(this.config.stationId).trim();
+    const token = String(this.config.token).trim();
+
+    // WeatherFlow REST API base endpoint is /swd/rest/
+    const obsUrl = `https://swd.weatherflow.com/swd/rest/observations/station/${stationId}?token=${token}`;
+    const forecastUrl = `https://swd.weatherflow.com/swd/rest/better_forecast?station_id=${stationId}&token=${token}`;
+
+    console.log(`[MMM-TempestWx] Fetching data for Station ID: ${stationId}`);
+
     try {
-      const isMonetized = payload.category === "monetized";
-      const reward = isMonetized ? Math.max(0, parseFloat(payload.reward_amount) || 0) : 0.00;
+      // Parallel fetch using built-in Node.js https
+      const [obsData, forecastData] = await Promise.all([
+        this.httpGetJson(obsUrl),
+        this.httpGetJson(forecastUrl).catch((err) => {
+          console.warn("[MMM-TempestWx] Forecast API notice: " + err.message);
+          return null;
+        })
+      ]);
 
-      const newTask = {
-        id: "task_" + uuidv4().substring(0, 8),
-        title: String(payload.title || "Untitled Chore").trim(),
-        category: isMonetized ? "monetized" : "routine",
-        reward_amount: reward,
-        assigned_to: payload.assigned_to || "up_for_grabs",
-        recurrence: isMonetized ? null : (payload.recurrence || {
-          frequency: "weekly",
-          days_of_week: [0, 1, 2, 3, 4, 5, 6]
-        }),
-        last_completed_date: null,
-        is_completed_today: false,
-        is_completed: false,
-        is_approved: false,
-        notes: payload.initial_note ? [
-          {
-            author: "Parent",
-            text: String(payload.initial_note).trim(),
-            timestamp: new Date().toISOString()
+      // WeatherFlow station endpoint returns an array of objects [ { air_temperature: ... } ]
+      // WeatherFlow device endpoint returns an array of arrays [ [ timestamp, ..., air_temp ] ]
+      const rawObs = obsData?.obs?.[0] || obsData?.obs || obsData;
+      if (!rawObs) {
+        throw new Error("No observation data returned for station " + stationId);
+      }
+
+      const isArr = Array.isArray(rawObs);
+      const airTemp = isArr
+        ? rawObs[7]
+        : (rawObs.air_temperature ?? rawObs.air_temp ?? forecastData?.current_conditions?.air_temperature ?? 0);
+      const relHumidity = isArr
+        ? rawObs[8]
+        : (rawObs.relative_humidity ?? rawObs.rh ?? forecastData?.current_conditions?.relative_humidity ?? 50);
+      const pressure = isArr
+        ? rawObs[6]
+        : (rawObs.barometric_pressure ?? rawObs.station_pressure ?? rawObs.sea_level_pressure ?? forecastData?.current_conditions?.station_pressure ?? 1013.25);
+      const windAvg = isArr
+        ? rawObs[2]
+        : (rawObs.wind_avg ?? rawObs.wind_speed ?? forecastData?.current_conditions?.wind_avg ?? 0);
+      const windGust = isArr
+        ? rawObs[3]
+        : (rawObs.wind_gust ?? forecastData?.current_conditions?.wind_gust ?? windAvg);
+      const windDir = isArr
+        ? rawObs[4]
+        : (rawObs.wind_direction ?? rawObs.wind_dir ?? forecastData?.current_conditions?.wind_direction ?? 0);
+      const uv = isArr
+        ? (rawObs[10] || 0)
+        : (rawObs.uv ?? forecastData?.current_conditions?.uv ?? 0);
+      const solarRad = isArr
+        ? (rawObs[11] || 0)
+        : (rawObs.solar_radiation ?? forecastData?.current_conditions?.solar_radiation ?? 0);
+      const precip = isArr
+        ? (rawObs[12] || 0)
+        : (rawObs.precip_accum_local_day ?? rawObs.precip ?? 0);
+      const lightningDist = isArr
+        ? (rawObs[14] || 0)
+        : (rawObs.lightning_strike_last_distance ?? rawObs.strike_distance ?? 0);
+      const lightningCount = isArr
+        ? (rawObs[15] || 0)
+        : (rawObs.lightning_strike_count ?? rawObs.strike_count ?? 0);
+      const battery = isArr
+        ? (rawObs[16] || 2.8)
+        : (rawObs.battery ?? 2.8);
+      const dewPoint = rawObs.dew_point ?? (airTemp - ((100 - relHumidity) / 5));
+
+      const observation = {
+        station_id: stationId,
+        station_name: obsData.station_name || "Tempest Station #" + stationId,
+        air_temperature: Number(airTemp),
+        relative_humidity: Number(relHumidity),
+        barometric_pressure: Number(pressure),
+        pressure_trend: "steady",
+        wind_avg: Number(windAvg),
+        wind_gust: Number(windGust),
+        wind_direction: Number(windDir),
+        wind_direction_cardinal: this.degreesToCardinal(Number(windDir)),
+        solar_radiation: Number(solarRad),
+        uv: Number(uv),
+        precip_accum_local_day: Number(precip),
+        lightning_strike_last_distance: Number(lightningDist),
+        lightning_strike_count: Number(lightningCount),
+        battery: Number(battery),
+        feels_like: Number(forecastData?.current_conditions?.feels_like ?? airTemp),
+        dew_point: Number(dewPoint),
+        conditions: forecastData?.current_conditions?.conditions || (forecastData?.forecast?.daily?.[0]?.conditions) || "Clear",
+        icon: forecastData?.current_conditions?.icon || (forecastData?.forecast?.daily?.[0]?.icon) || "clear-day"
+      };
+
+      // Resolve station geographic coordinates if needed for NOAA forecast or NOAA alerts
+      const provider = String(this.config.weatherProvider || "tempest").trim();
+      const isNoaa = provider.toUpperCase() === "NOAA";
+      const checkAlerts = this.config.checkNoaaAlerts !== false;
+
+      let lat = this.config.latitude !== undefined && this.config.latitude !== null ? Number(this.config.latitude) : null;
+      let lon = this.config.longitude !== undefined && this.config.longitude !== null ? Number(this.config.longitude) : null;
+
+      if ((isNoaa || checkAlerts) && (lat === null || lon === null || isNaN(lat) || isNaN(lon))) {
+        if (typeof forecastData?.latitude === "number" && typeof forecastData?.longitude === "number") {
+          lat = forecastData.latitude;
+          lon = forecastData.longitude;
+        } else {
+          try {
+            const stationInfoUrl = `https://swd.weatherflow.com/swd/rest/stations/${stationId}?token=${token}`;
+            const stationMeta = await this.httpGetJson(stationInfoUrl);
+            const st = stationMeta?.stations?.[0];
+            if (st && typeof st.latitude === "number" && typeof st.longitude === "number") {
+              lat = st.latitude;
+              lon = st.longitude;
+            }
+          } catch (metaErr) {
+            console.warn("[MMM-TempestWx] Could not fetch station coordinates for NOAA:", metaErr.message);
           }
-        ] : []
-      };
-
-      const tasks = this.choresDb.get("tasks").value() || [];
-      tasks.push(newTask);
-      this.choresDb.set("tasks", tasks).write();
-
-      console.log(`[${this.name}] Created new task: "${newTask.title}" (${newTask.id})`);
-      this.broadcastAllChoresData();
-    } catch (err) {
-      console.error(`[${this.name}] handleCreateTask failed:`, err);
-    }
-  },
-
-  /**
-   * Action Handler: Delete Task
-   */
-  handleDeleteTask: function (payload) {
-    try {
-      const { taskId } = payload;
-      let tasks = this.choresDb.get("tasks").value() || [];
-      tasks = tasks.filter((t) => t.id !== taskId);
-      this.choresDb.set("tasks", tasks).write();
-      this.broadcastAllChoresData();
-    } catch (err) {
-      console.error(`[${this.name}] handleDeleteTask failed:`, err);
-    }
-  },
-
-  /**
-   * Action Handler: Payout & Audit Engine
-   * Calculates total earnings from approved monetized chores, appends immutable log to payouts_db.json,
-   * and resets/archives the approved chores.
-   */
-  handleProcessPayout: function (payload) {
-    try {
-      const { profile_id, date_range_start, date_range_end } = payload;
-      const todayStr = this.getLocalDateString();
-
-      const tasks = this.choresDb.get("tasks").value() || [];
-
-      // Find eligible approved monetized tasks for this profile
-      const eligibleTasks = tasks.filter((task) => {
-        if (task.category !== "monetized") return false;
-        if (!task.is_completed || !task.is_approved) return false;
-        if (task.assigned_to !== profile_id) return false;
-
-        const compDate = task.completed_date || task.last_completed_date;
-        if (compDate) {
-          if (date_range_start && compDate < date_range_start) return false;
-          if (date_range_end && compDate > date_range_end) return false;
         }
-        return true;
-      });
-
-      if (eligibleTasks.length === 0) {
-        console.log(`[${this.name}] No eligible approved tasks to process payout for ${profile_id}`);
-        return;
       }
 
-      // Calculate total payout amount
-      let totalAmount = 0;
-      const approvedTaskIds = [];
-      eligibleTasks.forEach((t) => {
-        totalAmount += Number(t.reward_amount) || 0;
-        approvedTaskIds.push(t.id);
-      });
+      // Extract 7-day forecast based on configured weatherProvider ("tempest" or "NOAA")
+      let forecastDaily = [];
+      let forecastSource = "tempest";
 
-      // Construct immutable payout record
-      const payoutRecord = {
-        id: "payout_" + uuidv4().substring(0, 8),
-        profile_id: profile_id,
-        total_amount: Number(totalAmount.toFixed(2)),
-        date_range_start: date_range_start || todayStr,
-        date_range_end: date_range_end || todayStr,
-        processed_timestamp: new Date().toISOString(),
-        approved_task_ids: approvedTaskIds
+      if (isNoaa) {
+        if (typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
+          try {
+            console.log(`[MMM-TempestWx] Fetching NOAA 7-day forecast for coordinates: ${lat}, ${lon}`);
+            forecastDaily = await this.fetchNoaaForecast(lat, lon);
+            if (forecastDaily && forecastDaily.length > 0) {
+              forecastSource = "NOAA";
+              console.log(`[MMM-TempestWx] Successfully retrieved NOAA 7-day forecast (${forecastDaily.length} days).`);
+            }
+          } catch (noaaErr) {
+            console.warn(`[MMM-TempestWx] NOAA forecast error: ${noaaErr.message}. Falling back to Tempest forecast.`);
+          }
+        } else {
+          console.warn("[MMM-TempestWx] Coordinates unavailable for NOAA forecast. Falling back to Tempest forecast.");
+        }
+      }
+
+      // Extract NOAA active weather statements, watches, advisories, and warnings
+      let noaaAlerts = [];
+      if (checkAlerts && typeof lat === "number" && typeof lon === "number" && !isNaN(lat) && !isNaN(lon)) {
+        try {
+          console.log(`[MMM-TempestWx] Checking NOAA.gov active weather statements & alerts for ${lat}, ${lon}`);
+          noaaAlerts = await this.fetchNoaaAlerts(lat, lon);
+          if (noaaAlerts.length > 0) {
+            console.log(`[MMM-TempestWx] Active NOAA alert found: ${noaaAlerts[0].event} (${noaaAlerts[0].level} / ${noaaAlerts[0].color})`);
+          }
+        } catch (alertErr) {
+          console.warn("[MMM-TempestWx] Error checking NOAA alerts:", alertErr.message);
+        }
+      }
+
+      // Fallback to Tempest Better Forecast if daily is still empty
+      if (forecastDaily.length === 0 && forecastData?.forecast?.daily) {
+        const days = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+        forecastDaily = forecastData.forecast.daily.slice(0, 7).map((d, i) => {
+          const date = new Date(d.day_start_local * 1000);
+          const high = d.air_temp_high ?? d.air_temperature_high ?? d.high_temp ?? d.temp_high ?? 20;
+          const low = d.air_temp_low ?? d.air_temperature_low ?? d.low_temp ?? d.temp_low ?? 10;
+          return {
+            day_name: i === 0 ? "Today" : i === 1 ? "Tomorrow" : days[date.getDay()],
+            conditions: d.conditions || "Partly Cloudy",
+            icon: d.icon || "partly-cloudy",
+            air_temp_high: Number(high),
+            air_temp_low: Number(low),
+            precip_probability: d.precip_probability || 0,
+            wind_avg: d.wind_avg || 0
+          };
+        });
+        forecastSource = "tempest";
+      }
+
+      // Extract hourly wind and telemetry trends
+      let forecastHourly = [];
+      if (forecastData?.forecast?.hourly) {
+        forecastHourly = forecastData.forecast.hourly.slice(0, 24).map((h) => {
+          const d = new Date(h.time * 1000);
+          const hrs = d.getHours();
+          const hourLabel = hrs === 0 ? "12 AM" : hrs === 12 ? "12 PM" : hrs > 12 ? `${hrs - 12} PM` : `${hrs} AM`;
+          const rawTemp = h.air_temperature ?? h.air_temp ?? h.temp ?? 20;
+          const rawFeels = h.feels_like ?? rawTemp;
+          return {
+            hour_label: hourLabel,
+            conditions: h.conditions || "Clear",
+            air_temp: Number(rawTemp),
+            feels_like: Number(rawFeels),
+            relative_humidity: Number(h.relative_humidity ?? 50),
+            wind_avg: Number(h.wind_avg ?? 0),
+            wind_gust: Number(h.wind_gust ?? h.wind_avg ?? 0),
+            wind_direction: Number(h.wind_direction ?? 0),
+            wind_direction_cardinal: this.degreesToCardinal(h.wind_direction ?? 0),
+            uv: Number(h.uv ?? 0),
+            precip_accum: Number(h.precip ?? h.precip_accum ?? 0),
+            precip_probability: Number(h.precip_probability ?? 0)
+          };
+        });
+      }
+
+      console.log("[MMM-TempestWx] Successfully retrieved observation for " + (obsData.station_name || "station " + stationId) + ". Temp: " + airTemp + " C (" + Math.round((Number(airTemp) * 9) / 5 + 32) + " F)");
+
+      this.sendSocketNotification("TEMPEST_DATA", {
+        station_id: stationId,
+        station_name: obsData.station_name,
+        observation: observation,
+        forecast_daily: forecastDaily,
+        forecast_hourly: forecastHourly,
+        forecast_source: forecastSource,
+        noaa_alerts: noaaAlerts,
+        active_alert: noaaAlerts.length > 0 ? noaaAlerts[0] : null
+      });
+    } catch (error) {
+      console.error("[MMM-TempestWx] API fetch error:", error.message || error);
+      let errStr = error.message || String(error);
+      if (errStr.includes("404")) {
+        errStr = `Station ID ${stationId} not found (HTTP 404). Make sure you are using your numerical Station ID from tempestwx.com/settings/stations, not a Device ID or serial number.`;
+      } else if (errStr.includes("401")) {
+        errStr = "Unauthorized (HTTP 401). Please check your Tempest Personal Access Token in tempestwx.com > Settings > Data Authorizations.";
+      }
+      this.sendSocketNotification("TEMPEST_ERROR", {
+        message: errStr,
+        url: obsUrl
+      });
+    }
+  },
+
+  /**
+   * Fetch active weather statements, watches, advisories, and warnings from NOAA (api.weather.gov)
+   */
+  fetchNoaaAlerts: async function (latitude, longitude) {
+    if (typeof latitude !== "number" || typeof longitude !== "number" || isNaN(latitude) || isNaN(longitude)) {
+      return [];
+    }
+
+    const latStr = latitude.toFixed(4);
+    const lonStr = longitude.toFixed(4);
+    const alertsUrl = `https://api.weather.gov/alerts/active?point=${latStr},${lonStr}`;
+
+    try {
+      const alertsData = await this.httpGetJson(alertsUrl);
+      return this.parseNoaaAlerts(alertsData);
+    } catch (err) {
+      console.warn(`[MMM-TempestWx] Could not fetch NOAA alerts for ${latStr},${lonStr}:`, err.message);
+      return [];
+    }
+  },
+
+  /**
+   * Parse NOAA National Weather Service alerts into standardized alerts array
+   */
+  parseNoaaAlerts: function (alertsData) {
+    const features = alertsData?.features || [];
+    if (!Array.isArray(features) || features.length === 0) return [];
+
+    const parsed = features.map((f) => {
+      const p = f.properties || {};
+      const event = (p.event || "Special Weather Statement").trim();
+      const lower = event.toLowerCase();
+
+      let level = "statement";
+      let color = "yellow";
+      let priority = 0;
+
+      if (lower.includes("warning")) {
+        level = "warning";
+        color = "red";
+        priority = 3;
+      } else if (lower.includes("advisory")) {
+        level = "advisory";
+        color = "orange";
+        priority = 2;
+      } else if (lower.includes("watch")) {
+        level = "watch";
+        color = "yellow";
+        priority = 1;
+      } else {
+        level = "statement";
+        color = "yellow";
+        priority = 0;
+      }
+
+      return {
+        event: event,
+        headline: p.headline || event,
+        description: p.description || "",
+        instruction: p.instruction || "",
+        severity: p.severity || "Unknown",
+        urgency: p.urgency || "Unknown",
+        certainty: p.certainty || "Unknown",
+        effective: p.effective || "",
+        expires: p.expires || "",
+        level: level,
+        color: color,
+        priority: priority
+      };
+    });
+
+    parsed.sort((a, b) => b.priority - a.priority);
+    return parsed;
+  },
+
+  /**
+   * Fetch 7-day forecast from NOAA National Weather Service (api.weather.gov)
+   */
+  fetchNoaaForecast: async function (latitude, longitude) {
+    if (typeof latitude !== "number" || typeof longitude !== "number" || isNaN(latitude) || isNaN(longitude)) {
+      throw new Error("Invalid coordinates for NOAA: lat=" + latitude + ", lon=" + longitude);
+    }
+
+    const latStr = latitude.toFixed(4);
+    const lonStr = longitude.toFixed(4);
+    const pointsUrl = `https://api.weather.gov/points/${latStr},${lonStr}`;
+
+    const pointsData = await this.httpGetJson(pointsUrl);
+    if (!pointsData?.properties?.forecast) {
+      throw new Error("No forecast URL returned from NOAA points API for " + latStr + "," + lonStr);
+    }
+
+    const forecastUrl = pointsData.properties.forecast;
+    const forecastData = await this.httpGetJson(forecastUrl);
+    return this.parseNoaaForecastDaily(forecastData);
+  },
+
+  /**
+   * Parse NOAA National Weather Service forecast periods into standardized DailyForecast array
+   */
+  parseNoaaForecastDaily: function (forecastData) {
+    const periods = forecastData?.properties?.periods || [];
+    if (!periods.length) return [];
+
+    const daysMap = new Map();
+    const daysOrder = [];
+
+    for (const p of periods) {
+      const dateKey = (p.startTime || "").split("T")[0];
+      if (!dateKey) continue;
+
+      if (!daysMap.has(dateKey)) {
+        if (daysOrder.length >= 7) continue;
+        daysOrder.push(dateKey);
+        daysMap.set(dateKey, {
+          dateKey: dateKey,
+          daytime: null,
+          nighttime: null,
+          periods: []
+        });
+      }
+      const entry = daysMap.get(dateKey);
+      entry.periods.push(p);
+      if (p.isDaytime) {
+        entry.daytime = p;
+      } else {
+        entry.nighttime = p;
+      }
+    }
+
+    const weekdayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+    return daysOrder.map((dateKey, index) => {
+      const entry = daysMap.get(dateKey);
+      const dayPeriod = entry.daytime;
+      const nightPeriod = entry.nighttime;
+      const primaryPeriod = dayPeriod || nightPeriod || entry.periods[0];
+
+      const d = new Date(primaryPeriod.startTime);
+      const dayName = index === 0 ? "Today" : index === 1 ? "Tomorrow" : weekdayNames[d.getDay()];
+      const dateLabel = `${d.getMonth() + 1}/${d.getDate()}`;
+
+      const toCelsius = (temp, unit) => {
+        if (typeof temp !== "number") return 20;
+        return unit === "C" ? temp : (temp - 32) * (5 / 9);
       };
 
-      // Append to payouts_db.json atomically
-      const payoutRecords = this.payoutsDb.get("payout_records").value() || [];
-      payoutRecords.push(payoutRecord);
-      this.payoutsDb.set("payout_records", payoutRecords).write();
+      let highC = dayPeriod ? toCelsius(dayPeriod.temperature, dayPeriod.temperatureUnit) : null;
+      let lowC = nightPeriod ? toCelsius(nightPeriod.temperature, nightPeriod.temperatureUnit) : null;
 
-      // Reset / Archive approved chores in chores_db.json
-      eligibleTasks.forEach((t) => {
-        t.is_completed = false;
-        t.is_approved = false;
-        t.last_payout_id = payoutRecord.id;
-        t.last_payout_date = todayStr;
-        if (!t.notes) t.notes = [];
-        t.notes.push({
-          author: "System",
-          text: `Paid in Payout #${payoutRecord.id} ($${Number(t.reward_amount).toFixed(2)}) on ${todayStr}.`,
-          timestamp: new Date().toISOString()
-        });
-      });
+      if (highC === null && lowC !== null) {
+        highC = lowC + 4;
+      } else if (lowC === null && highC !== null) {
+        lowC = highC - 5;
+      } else if (highC === null && lowC === null) {
+        highC = 20;
+        lowC = 12;
+      }
 
-      this.choresDb.set("tasks", tasks).write();
+      if (lowC > highC) {
+        const tmp = highC;
+        highC = lowC;
+        lowC = tmp;
+      }
 
-      console.log(`[${this.name}] Successfully processed Payout #${payoutRecord.id} ($${payoutRecord.total_amount}) for ${profile_id}`);
+      const conditions = (dayPeriod?.shortForecast || nightPeriod?.shortForecast || "Clear").trim();
+      const icon = this.mapNoaaIcon(dayPeriod?.icon || nightPeriod?.icon, conditions, !dayPeriod);
 
-      // Emit success notification and updated state
-      this.sendSocketNotification("PAYOUT_PROCESSED", {
-        success: true,
-        payoutRecord: payoutRecord
-      });
+      const precipProb = Math.max(
+        dayPeriod?.probabilityOfPrecipitation?.value || 0,
+        nightPeriod?.probabilityOfPrecipitation?.value || 0
+      );
 
-      this.broadcastAllChoresData();
-    } catch (err) {
-      console.error(`[${this.name}] handleProcessPayout failed:`, err);
+      const windSpeedStr = dayPeriod?.windSpeed || nightPeriod?.windSpeed || "5 mph";
+      const windMatches = windSpeedStr.match(/\d+/g);
+      let windMph = 5;
+      if (windMatches && windMatches.length > 0) {
+        const nums = windMatches.map(Number);
+        windMph = nums.reduce((a, b) => a + b, 0) / nums.length;
+      }
+      const windAvgMs = windMph * 0.44704;
+
+      const windDir = dayPeriod?.windDirection || nightPeriod?.windDirection || "W";
+
+      return {
+        day_start_local: Math.floor(d.getTime() / 1000),
+        day_name: dayName,
+        date_label: dateLabel,
+        conditions: conditions,
+        icon: icon,
+        air_temp_high: Number(highC.toFixed(1)),
+        air_temp_low: Number(lowC.toFixed(1)),
+        precip_probability: precipProb,
+        wind_avg: Number(windAvgMs.toFixed(1)),
+        wind_direction_cardinal: windDir,
+        uv: 5
+      };
+    });
+  },
+
+  /**
+   * Map NOAA weather conditions and icon URLs to module vector glyph keys
+   */
+  mapNoaaIcon: function (iconUrl, conditions, isNight) {
+    const text = ((iconUrl || "") + " " + (conditions || "")).toLowerCase();
+    const night = isNight || text.includes("/night/") || text.includes("night") || text.includes("moon");
+
+    if (text.includes("tsra") || text.includes("thunder") || text.includes("lightning") || text.includes("tstorm")) {
+      return "thunderstorm";
     }
+    if (text.includes("snow") || text.includes("flurries") || text.includes("blizzard") || text.includes("sleet")) {
+      return "snow";
+    }
+    if (text.includes("rain") || text.includes("shower") || text.includes("drizzle")) {
+      return night ? "rain-night" : "rain";
+    }
+    if (text.includes("fog") || text.includes("mist") || text.includes("haze") || text.includes("smoke")) {
+      return "fog";
+    }
+    if (text.includes("wind") || text.includes("breezy")) {
+      return "windy";
+    }
+    if (text.includes("bkn") || text.includes("ovc") || text.includes("cloud") || text.includes("overcast")) {
+      return night ? "cloudy-night" : "cloudy";
+    }
+    if (text.includes("sct") || text.includes("few") || text.includes("partly")) {
+      return night ? "partly-cloudy-night" : "partly-cloudy";
+    }
+    if (text.includes("skc") || text.includes("clear") || text.includes("sunny")) {
+      return night ? "clear-night" : "clear";
+    }
+    return night ? "clear-night" : "partly-cloudy";
+  },
+
+  degreesToCardinal: function (deg) {
+    const directions = ["N", "NNE", "NE", "ENE", "E", "ESE", "SE", "SSE", "S", "SSW", "SW", "WSW", "W", "WNW", "NW", "NNW"];
+    const idx = Math.round((deg % 360) / 22.5) % 16;
+    return directions[idx];
   }
 });
